@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Options Animex Toolkit</title>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; width: 500px; }
+    h2 { color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+    h3 { margin-top: 20px; margin-bottom: 10px; color: #0078D4; font-size: 1.1em; }
+    label { font-weight: bold; display: block; margin-bottom: 5px; }
+    textarea { width: 100%; height: 150px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: monospace; resize: vertical; }
+    .note { font-size: 0.85em; color: #666; margin-bottom: 15px; display: block; }
+    button { background-color: #0078D4; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; margin-top: 20px; }
+    button:hover { background-color: #005a9e; }
+    #status { margin-left: 10px; color: green; font-weight: bold; opacity: 0; transition: opacity 0.5s; }
+    .checkbox-container { margin-bottom: 8px; }
+    .checkbox-container input { margin-right: 10px; }
+    .checkbox-container label { display: inline; font-weight: normal; }
+  </style>
+</head>
+<body>
+  <h2>⚙️ Configuration Animex</h2>
+
+  <h3>📧 Template Commission</h3>
+  <label for="template">Modèle d'email :</label>
+  <span class="note">Utilisez <strong>{FULLNAME}</strong> pour insérer votre nom.</span>
+  <textarea id="template"></textarea>
+
+  <h3>📊 Nettoyage des Tableaux</h3>
+  <div class="checkbox-container">
+    <input type="checkbox" id="hideTargetDate">
+    <label for="hideTargetDate">Masquer la colonne <strong>TARGET DATE</strong></label>
+  </div>
+  <div class="checkbox-container">
+    <input type="checkbox" id="hideType">
+    <label for="hideType">Masquer la colonne <strong>TYPE</strong></label>
+  </div>
+
+  <button id="save">Enregistrer</button>
+  <span id="status">Sauvegardé !</span>
+
+  <script src="options.js"></script>
+</body>
+</html>
