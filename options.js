@@ -15,11 +15,13 @@ function saveOptions() {
   const templateValue = document.getElementById('template').value;
   const hideTargetDate = document.getElementById('hideTargetDate').checked;
   const hideType = document.getElementById('hideType').checked;
+  const enableAutoCopy = document.getElementById('enableAutoCopy') ? document.getElementById('enableAutoCopy').checked : true;
   
   chrome.storage.sync.set({
     commissionTemplate: templateValue,
     hideTargetDate: hideTargetDate,
     hideType: hideType
+    ,enableAutoCopy: enableAutoCopy
   }, () => {
     const status = document.getElementById('status');
     status.style.opacity = '1';
@@ -33,10 +35,12 @@ function restoreOptions() {
     commissionTemplate: DEFAULT_TEMPLATE,
     hideTargetDate: true, // Par défaut : Masqué
     hideType: true        // Par défaut : Masqué
+    ,enableAutoCopy: true
   }, (items) => {
     document.getElementById('template').value = items.commissionTemplate;
     document.getElementById('hideTargetDate').checked = items.hideTargetDate;
     document.getElementById('hideType').checked = items.hideType;
+    if (document.getElementById('enableAutoCopy')) document.getElementById('enableAutoCopy').checked = items.enableAutoCopy;
   });
 }
 

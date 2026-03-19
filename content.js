@@ -21,6 +21,7 @@ let configColonnes = {
     hideTargetDate: true,
     hideType: true
 };
+let autoCopyEnabled = true;
 
 // ============================================================
 // 🛡️ WAIT LOOP V2 : LE DOM CHECKER
@@ -90,6 +91,7 @@ function lancerBouclePrincipale() {
 
         if (urlActuelle !== urlPrecedente) {
             urlPrecedente = urlActuelle;
+            enregistrerDernierLien(urlActuelle);
             if (urlActuelle.includes('/formAC/search/')) setTimeout(lancerLePimpRapport, 1000); 
             if (urlActuelle.includes('/application/experiments/search/')) setTimeout(lancerLePimpFormA, 1000);
         }
@@ -102,8 +104,65 @@ function lancerBouclePrincipale() {
         marquerMiceGM_V13(); 
         marquerSexeNonMixte();
         verifierPopupCommission();
+        copierJoursDemandes();
 
     }, 800); 
+}
+
+// Copie la valeur de `requestedDays` vers `approvedDays` lorsque la page correspond
+function copierJoursDemandes() {
+        try {
+        if (!autoCopyEnabled) return;
+        const url = window.location.href;
+        if (!url.includes('/persons/courses/') && !url.includes('/api/v1/persons/courses/')) return;
+        if (!url.includes('courseType=ALL')) return;
+
+        // Cherche les champs Angular/HTML avec formcontrolname
+        const requested = document.querySelector('[formcontrolname="requestedDays"]');
+        const approved = document.querySelector('[formcontrolname="approvedDays"]');
+        if (!requested || !approved) return;
+
+        // Eviter de sur-écrire si déjà rempli par l'utilisateur
+        const getValue = (el) => {
+            if (!el) return '';
+            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return el.value || '';
+            const inp = el.querySelector('input,textarea');
+            if (inp) return inp.value || '';
+            return el.getAttribute('value') || el.textContent || '';
+        };
+
+        const setValue = (el, val) => {
+            if (!el) return;
+            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                el.value = val;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                return;
+            }
+            const inp = el.querySelector('input,textarea');
+            if (inp) {
+                inp.value = val;
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                inp.dispatchEvent(new Event('change', { bubbles: true }));
+                return;
+            }
+            try { el.setAttribute('value', val); } catch (e) {}
+        };
+
+        const valReq = (getValue(requested) || '').toString().trim();
+        const valApp = (getValue(approved) || '').toString().trim();
+
+        if (valReq === '' ) return; // rien à copier
+        if (valApp !== '') return; // ne pas écraser
+
+        // Copier la valeur
+        setValue(approved, valReq);
+        console.log('Animex Toolkit: copied requestedDays -> approvedDays:', valReq);
+        // Marquer pour ne pas retenter
+        approved.setAttribute('data-animex-copied', 'true');
+    } catch (err) {
+        // ne rien faire
+    }
 }
 
 // ============================================================
@@ -114,10 +173,68 @@ function chargerPreferences() {
     if (chrome.storage && chrome.storage.sync) {
         chrome.storage.sync.get({
             hideTargetDate: true,
-            hideType: true
+            hideType: true,
+            lastVisited: '',
+            enableAutoCopy: true
         }, (items) => {
             configColonnes.hideTargetDate = items.hideTargetDate;
             configColonnes.hideType = items.hideType;
+            autoCopyEnabled = items.enableAutoCopy !== false;
+            if (items.lastVisited) afficherDernierLien(items.lastVisited);
+        });
+    }
+}
+
+// Enregistre le dernier lien visité dans le storage
+function enregistrerDernierLien(url) {
+    if (chrome && chrome.storage && chrome.storage.sync) {
+        try {
+            chrome.storage.sync.set({ lastVisited: url });
+        } catch (e) {
+            // ignore
+        }
+    }
+    mettreAJourBarreDernierLien(url);
+}
+
+// Met à jour ou crée la barre affichant le dernier lien en haut de la page
+function mettreAJourBarreDernierLien(url) {
+    if (!url) return;
+    const id = 'animex-last-visited';
+    let bar = document.getElementById(id);
+    const htmlLink = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#0b66c3;text-decoration:underline;">${url}</a>`;
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = id;
+        bar.style.cssText = 'position:fixed;top:8px;right:8px;left:8px;z-index:2147483647;background:#fff8e1;border:1px solid #ffe0b2;padding:8px 12px;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.15);font-size:13px;color:#333;display:flex;align-items:center;gap:12px;max-width:calc(100% - 16px);';
+        const label = document.createElement('span');
+        label.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        label.innerHTML = `Dernier lien visité : ${htmlLink}`;
+        const closeBtn = document.createElement('button');
+        closeBtn.innerText = '×';
+        closeBtn.title = 'Fermer';
+        closeBtn.style.cssText = 'background:transparent;border:none;font-size:16px;cursor:pointer;padding:0 6px;';
+        closeBtn.onclick = () => { bar.remove(); };
+        bar.appendChild(label);
+        bar.appendChild(closeBtn);
+        document.body.appendChild(bar);
+        // remove after 12s to avoid persistent overlay if user doesn't want it
+        setTimeout(() => { if (document.getElementById(id)) document.getElementById(id).remove(); }, 12000);
+    } else {
+        const label = bar.querySelector('span');
+        if (label) label.innerHTML = `Dernier lien visité : ${htmlLink}`;
+    }
+}
+
+// Charge et affiche le dernier lien depuis le storage (au démarrage)
+function afficherDernierLien(storedUrl) {
+    if (storedUrl) {
+        mettreAJourBarreDernierLien(storedUrl);
+        return;
+    }
+    if (chrome && chrome.storage && chrome.storage.sync) {
+        chrome.storage.sync.get({ lastVisited: '' }, (items) => {
+            if (items.lastVisited) mettreAJourBarreDernierLien(items.lastVisited);
         });
     }
 }
