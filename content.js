@@ -111,18 +111,29 @@ function lancerBouclePrincipale() {
 
 // Copie la valeur de `requestedDays` vers `approvedDays` lorsque la page correspond
 function copierJoursDemandes() {
-        try {
-        if (!autoCopyEnabled) return;
+    try {
+        console.debug('Animex Toolkit: copierJoursDemandes start', { autoCopyEnabled, url: window.location.href });
+        if (!autoCopyEnabled) {
+            console.debug('copierJoursDemandes: autoCopy disabled');
+            return;
+        }
         const url = window.location.href;
-        if (!url.includes('/persons/courses/') && !url.includes('/api/v1/persons/courses/')) return;
-        if (!url.includes('courseType=ALL')) return;
+        if (!url.includes('/persons/courses/') && !url.includes('/api/v1/persons/courses/')) {
+            console.debug('copierJoursDemandes: not a persons/courses page');
+            return;
+        }
+        if (!url.includes('courseType=ALL')) {
+            console.debug('copierJoursDemandes: courseType != ALL');
+            return;
+        }
 
-        // Cherche les champs Angular/HTML avec formcontrolname
         const requested = document.querySelector('[formcontrolname="requestedDays"]');
         const approved = document.querySelector('[formcontrolname="approvedDays"]');
-        if (!requested || !approved) return;
+        if (!requested || !approved) {
+            console.debug('copierJoursDemandes: requested or approved field not found', { requested: !!requested, approved: !!approved });
+            return;
+        }
 
-        // Eviter de sur-écrire si déjà rempli par l'utilisateur
         const getValue = (el) => {
             if (!el) return '';
             if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return el.value || '';
@@ -146,22 +157,27 @@ function copierJoursDemandes() {
                 inp.dispatchEvent(new Event('change', { bubbles: true }));
                 return;
             }
-            try { el.setAttribute('value', val); } catch (e) {}
+            try { el.setAttribute('value', val); } catch (e) { console.warn('copierJoursDemandes: setAttribute failed', e); }
         };
 
         const valReq = (getValue(requested) || '').toString().trim();
         const valApp = (getValue(approved) || '').toString().trim();
+        console.debug('copierJoursDemandes: values', { valReq, valApp });
 
-        if (valReq === '' ) return; // rien à copier
-        if (valApp !== '') return; // ne pas écraser
+        if (valReq === '') {
+            console.debug('copierJoursDemandes: requestedDays empty');
+            return;
+        }
+        if (valApp !== '') {
+            console.debug('copierJoursDemandes: approvedDays already filled');
+            return;
+        }
 
-        // Copier la valeur
         setValue(approved, valReq);
         console.log('Animex Toolkit: copied requestedDays -> approvedDays:', valReq);
-        // Marquer pour ne pas retenter
-        approved.setAttribute('data-animex-copied', 'true');
+        try { approved.setAttribute('data-animex-copied', 'true'); } catch (e) {}
     } catch (err) {
-        // ne rien faire
+        console.error('Animex Toolkit: copierJoursDemandes error', err);
     }
 }
 
@@ -201,6 +217,39 @@ function enregistrerDernierLien(url) {
 function mettreAJourBarreDernierLien(url) {
     if (!url) return;
     const id = 'animex-last-visited';
+    // Premièrement : tenter d'insérer un bouton sous le <h1> contenant "animex-ch"
+    try {
+        const h1Candidates = Array.from(document.querySelectorAll('h1'));
+        const titre = h1Candidates.find(h => h.innerText && h.innerText.toLowerCase().includes('animex-ch')) || document.querySelector(SELECTEUR_TITRE);
+        const btnId = 'animex-last-visited-btn';
+        if (titre) {
+            let btn = document.getElementById(btnId);
+            const displayText = url.length > 80 ? url.slice(0, 80) + '…' : url;
+            if (!btn) {
+                btn = document.createElement('button');
+                btn.id = btnId;
+                btn.style.cssText = 'background:#e3f2fd;color:#0b66c3;border:1px solid #bbdefb;padding:6px 10px;border-radius:6px;margin-left:12px;cursor:pointer;font-size:0.9em;';
+                btn.onmousedown = () => btn.style.transform = 'scale(0.98)';
+                btn.onmouseup = () => btn.style.transform = 'scale(1)';
+                btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) { console.warn('animex open url failed', ex); } };
+                btn.setAttribute('title', url);
+                btn.innerText = `Dernier lien : ${displayText}`;
+                // insérer après le titre si possible
+                if (titre.parentNode) titre.parentNode.insertBefore(btn, titre.nextSibling);
+                else titre.appendChild(btn);
+            } else {
+                btn.setAttribute('title', url);
+                btn.innerText = `Dernier lien : ${displayText}`;
+                // update click handler to open newest url
+                btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) { console.warn('animex open url failed', ex); } };
+            }
+            return;
+        }
+    } catch (e) {
+        console.warn('mettreAJourBarreDernierLien: bouton sous h1 failed', e);
+    }
+
+    // Fallback : conserver la barre flottante en haut (comportement précédent)
     let bar = document.getElementById(id);
     const htmlLink = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#0b66c3;text-decoration:underline;">${url}</a>`;
     if (!bar) {
