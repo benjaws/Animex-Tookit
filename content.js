@@ -216,62 +216,36 @@ function enregistrerDernierLien(url) {
 // Met à jour ou crée la barre affichant le dernier lien en haut de la page
 function mettreAJourBarreDernierLien(url) {
     if (!url) return;
-    const id = 'animex-last-visited';
-    // Premièrement : tenter d'insérer un bouton sous le <h1> contenant "animex-ch"
+    // Insérer uniquement le bouton sous le <h1> contenant "animex-ch". Pas de barre flottante.
     try {
         const h1Candidates = Array.from(document.querySelectorAll('h1'));
         const titre = h1Candidates.find(h => h.innerText && h.innerText.toLowerCase().includes('animex-ch')) || document.querySelector(SELECTEUR_TITRE);
+        if (!titre) return; // pas de titre ciblé -> ne rien afficher
         const btnId = 'animex-last-visited-btn';
-        if (titre) {
-            let btn = document.getElementById(btnId);
-            const displayText = url.length > 80 ? url.slice(0, 80) + '…' : url;
-            if (!btn) {
-                btn = document.createElement('button');
-                btn.id = btnId;
-                btn.style.cssText = 'background:#e3f2fd;color:#0b66c3;border:1px solid #bbdefb;padding:6px 10px;border-radius:6px;margin-left:12px;cursor:pointer;font-size:0.9em;';
-                btn.onmousedown = () => btn.style.transform = 'scale(0.98)';
-                btn.onmouseup = () => btn.style.transform = 'scale(1)';
-                btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) { console.warn('animex open url failed', ex); } };
-                btn.setAttribute('title', url);
-                btn.innerText = `Dernier lien : ${displayText}`;
-                // insérer après le titre si possible
-                if (titre.parentNode) titre.parentNode.insertBefore(btn, titre.nextSibling);
-                else titre.appendChild(btn);
-            } else {
-                btn.setAttribute('title', url);
-                btn.innerText = `Dernier lien : ${displayText}`;
-                // update click handler to open newest url
-                btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) { console.warn('animex open url failed', ex); } };
-            }
-            return;
+        let btn = document.getElementById(btnId);
+        const displayText = url.length > 80 ? url.slice(0, 80) + '…' : url;
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.id = btnId;
+            btn.style.cssText = 'background:#e3f2fd;color:#0b66c3;border:1px solid #bbdefb;padding:6px 10px;border-radius:6px;margin-left:12px;margin-top:6px;cursor:pointer;font-size:0.9em;';
+            btn.onmousedown = () => btn.style.transform = 'scale(0.98)';
+            btn.onmouseup = () => btn.style.transform = 'scale(1)';
+            btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) { console.warn('animex open url failed', ex); } };
+            btn.setAttribute('title', url);
+            btn.innerText = `Dernier lien : ${displayText}`;
+            if (titre.parentNode) titre.parentNode.insertBefore(btn, titre.nextSibling);
+            else titre.appendChild(btn);
+        } else {
+            btn.setAttribute('title', url);
+            btn.innerText = `Dernier lien : ${displayText}`;
+            btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) { console.warn('animex open url failed', ex); } };
+            // ensure small offset
+            btn.style.marginTop = '6px';
         }
+        return;
     } catch (e) {
         console.warn('mettreAJourBarreDernierLien: bouton sous h1 failed', e);
-    }
-
-    // Fallback : conserver la barre flottante en haut (comportement précédent)
-    let bar = document.getElementById(id);
-    const htmlLink = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#0b66c3;text-decoration:underline;">${url}</a>`;
-    if (!bar) {
-        bar = document.createElement('div');
-        bar.id = id;
-        bar.style.cssText = 'position:fixed;top:8px;right:8px;left:8px;z-index:2147483647;background:#fff8e1;border:1px solid #ffe0b2;padding:8px 12px;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.15);font-size:13px;color:#333;display:flex;align-items:center;gap:12px;max-width:calc(100% - 16px);';
-        const label = document.createElement('span');
-        label.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-        label.innerHTML = `Dernier lien visité : ${htmlLink}`;
-        const closeBtn = document.createElement('button');
-        closeBtn.innerText = '×';
-        closeBtn.title = 'Fermer';
-        closeBtn.style.cssText = 'background:transparent;border:none;font-size:16px;cursor:pointer;padding:0 6px;';
-        closeBtn.onclick = () => { bar.remove(); };
-        bar.appendChild(label);
-        bar.appendChild(closeBtn);
-        document.body.appendChild(bar);
-        // remove after 12s to avoid persistent overlay if user doesn't want it
-        setTimeout(() => { if (document.getElementById(id)) document.getElementById(id).remove(); }, 12000);
-    } else {
-        const label = bar.querySelector('span');
-        if (label) label.innerHTML = `Dernier lien visité : ${htmlLink}`;
+        return;
     }
 }
 
