@@ -117,14 +117,15 @@ function copierJoursDemandes() {
         const href = (window.location.href || '').toLowerCase();
         const hash = (window.location.hash || '').toLowerCase();
 
-        // Détecter les pages gérées par la SPA (hash) ou routes normales
-        const isCourseRoute = href.includes('/persons/courses/') || href.includes('/api/v1/persons/courses/') || hash.includes('/persons/courses');
-        const isCourseTypeAll = href.includes('coursetype=all') || href.includes('courseType=ALL'.toLowerCase()) || hash.includes('coursetype=all') || hash.includes('coursetype=all');
-        if (!isCourseRoute || !isCourseTypeAll) return; // silencieux si hors-sujet
-
+        // find elements first — if present, prefer attempting copy regardless of URL
         const requested = document.querySelector('[formcontrolname="requestedDays"]');
         const approved = document.querySelector('[formcontrolname="approvedDays"]');
-        if (!requested || !approved) return;
+        if (!requested || !approved) {
+            // Détecter les pages gérées par la SPA (hash) ou routes normales
+            const isCourseRoute = href.includes('/persons/courses/') || href.includes('/api/v1/persons/courses/') || hash.includes('/persons/courses');
+            const isCourseTypeAll = href.includes('coursetype=all') || hash.includes('coursetype=all') || href.includes('courseType=ALL'.toLowerCase());
+            if (!isCourseRoute || !isCourseTypeAll) return; // silencieux si hors-sujet
+        }
 
         // avoid repeating attempts on the same URL
         const currentUrl = window.location.href;
@@ -207,6 +208,12 @@ function enregistrerDernierLien(url) {
 // Met à jour ou crée la barre affichant le dernier lien en haut de la page
 function mettreAJourBarreDernierLien(url) {
     if (!url) return;
+    // Supprimer toute ancienne barre flottante résiduelle (id 'animex-last-visited')
+    try {
+        const old = document.getElementById('animex-last-visited');
+        if (old) old.remove();
+    } catch (e) {}
+
     // Insérer uniquement le bouton sous le <h1> contenant "animex-ch". Pas de barre flottante.
     try {
         const h1Candidates = Array.from(document.querySelectorAll('h1'));
