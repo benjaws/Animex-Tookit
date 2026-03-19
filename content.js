@@ -22,6 +22,7 @@ let configColonnes = {
     hideType: true
 };
 let autoCopyEnabled = true;
+let _lastAutoCopyAttemptUrl = '';
 
 // ============================================================
 // 🛡️ WAIT LOOP V2 : LE DOM CHECKER
@@ -112,27 +113,22 @@ function lancerBouclePrincipale() {
 // Copie la valeur de `requestedDays` vers `approvedDays` lorsque la page correspond
 function copierJoursDemandes() {
     try {
-        console.debug('Animex Toolkit: copierJoursDemandes start', { autoCopyEnabled, url: window.location.href });
-        if (!autoCopyEnabled) {
-            console.debug('copierJoursDemandes: autoCopy disabled');
-            return;
-        }
-        const url = window.location.href;
-        if (!url.includes('/persons/courses/') && !url.includes('/api/v1/persons/courses/')) {
-            console.debug('copierJoursDemandes: not a persons/courses page');
-            return;
-        }
-        if (!url.includes('courseType=ALL')) {
-            console.debug('copierJoursDemandes: courseType != ALL');
-            return;
-        }
+        if (!autoCopyEnabled) return;
+        const href = (window.location.href || '').toLowerCase();
+        const hash = (window.location.hash || '').toLowerCase();
+
+        // Détecter les pages gérées par la SPA (hash) ou routes normales
+        const isCourseRoute = href.includes('/persons/courses/') || href.includes('/api/v1/persons/courses/') || hash.includes('/persons/courses');
+        const isCourseTypeAll = href.includes('coursetype=all') || href.includes('courseType=ALL'.toLowerCase()) || hash.includes('coursetype=all') || hash.includes('coursetype=all');
+        if (!isCourseRoute || !isCourseTypeAll) return; // silencieux si hors-sujet
 
         const requested = document.querySelector('[formcontrolname="requestedDays"]');
         const approved = document.querySelector('[formcontrolname="approvedDays"]');
-        if (!requested || !approved) {
-            console.debug('copierJoursDemandes: requested or approved field not found', { requested: !!requested, approved: !!approved });
-            return;
-        }
+        if (!requested || !approved) return;
+
+        // avoid repeating attempts on the same URL
+        const currentUrl = window.location.href;
+        if (_lastAutoCopyAttemptUrl === currentUrl) return;
 
         const getValue = (el) => {
             if (!el) return '';
@@ -162,20 +158,15 @@ function copierJoursDemandes() {
 
         const valReq = (getValue(requested) || '').toString().trim();
         const valApp = (getValue(approved) || '').toString().trim();
-        console.debug('copierJoursDemandes: values', { valReq, valApp });
 
-        if (valReq === '') {
-            console.debug('copierJoursDemandes: requestedDays empty');
-            return;
-        }
-        if (valApp !== '') {
-            console.debug('copierJoursDemandes: approvedDays already filled');
-            return;
-        }
+        if (valReq === '' ) return; // nothing to copy
+        if (valApp !== '') return; // don't overwrite
 
+        // attempt copy once per URL
         setValue(approved, valReq);
         console.log('Animex Toolkit: copied requestedDays -> approvedDays:', valReq);
         try { approved.setAttribute('data-animex-copied', 'true'); } catch (e) {}
+        _lastAutoCopyAttemptUrl = currentUrl;
     } catch (err) {
         console.error('Animex Toolkit: copierJoursDemandes error', err);
     }
