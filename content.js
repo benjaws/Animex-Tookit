@@ -232,12 +232,12 @@ function mettreAJourBarreDernierLien(url) {
             btn.onmouseup = () => btn.style.transform = 'scale(1)';
             btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) { console.warn('animex open url failed', ex); } };
             btn.setAttribute('title', url);
-            btn.innerText = `Dernier lien : ${displayText}`;
+            btn.innerText = 'Last visited page';
             if (titre.parentNode) titre.parentNode.insertBefore(btn, titre.nextSibling);
             else titre.appendChild(btn);
         } else {
             btn.setAttribute('title', url);
-            btn.innerText = `Dernier lien : ${displayText}`;
+            btn.innerText = 'Last visited page';
             btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) { console.warn('animex open url failed', ex); } };
             // ensure small offset
             btn.style.marginTop = '6px';
