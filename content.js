@@ -23,6 +23,8 @@ let configColonnes = {
 };
 let autoCopyEnabled = true;
 let _lastAutoCopyAttemptUrl = '';
+let _lastDateAutoCopyAttemptUrl = '';
+let _lastDateCopiedValue = '';
 
 // ============================================================
 // 🛡️ WAIT LOOP V2 : LE DOM CHECKER
@@ -92,7 +94,6 @@ function lancerBouclePrincipale() {
 
         if (urlActuelle !== urlPrecedente) {
             urlPrecedente = urlActuelle;
-            enregistrerDernierLien(urlActuelle);
             if (urlActuelle.includes('/formAC/search/')) setTimeout(lancerLePimpRapport, 1000); 
             if (urlActuelle.includes('/application/experiments/search/')) setTimeout(lancerLePimpFormA, 1000);
         }
@@ -106,6 +107,7 @@ function lancerBouclePrincipale() {
         marquerSexeNonMixte();
         verifierPopupCommission();
         copierJoursDemandes();
+        copierDateVersInput();
 
     }, 800); 
 }
@@ -188,7 +190,7 @@ function chargerPreferences() {
             configColonnes.hideTargetDate = items.hideTargetDate;
             configColonnes.hideType = items.hideType;
             autoCopyEnabled = items.enableAutoCopy !== false;
-            if (items.lastVisited) afficherDernierLien(items.lastVisited);
+            // suppression de l'affichage du dernier lien visité : ne rien faire
         });
     }
 }
@@ -531,4 +533,35 @@ function creerEtOuvrirPopup(titreHeader, contenuHtml) {
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
     document.getElementById('close-popup').onclick = () => overlay.remove();
+}
+
+// Copie la date depuis <td headers="cpToDate"> vers l'input ayant l'id "lastAttendedDay"
+function copierDateVersInput() {
+    try {
+        const input = document.getElementById('lastAttendedDay');
+        if (!input) return;
+
+        const currentUrl = window.location.href;
+
+        const td = document.querySelector('td[headers="cpToDate"]');
+        if (!td) return;
+        const dateText = (td.textContent || '').trim();
+        if (!dateText) return;
+
+        // Ne pas écraser une valeur déjà présente
+        if (input.value && input.value.toString().trim() !== '') return;
+
+        // Eviter répétitions inutiles sur la même page
+        if (_lastDateCopiedValue === dateText && _lastDateAutoCopyAttemptUrl === currentUrl) return;
+
+        input.value = dateText;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+
+        _lastDateAutoCopyAttemptUrl = currentUrl;
+        _lastDateCopiedValue = dateText;
+        console.log('Animex Toolkit: copied cpToDate -> #lastAttendedDay', dateText);
+    } catch (err) {
+        console.error('Animex Toolkit: copierDateVersInput error', err);
+    }
 }
