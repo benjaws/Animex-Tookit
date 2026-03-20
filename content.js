@@ -25,8 +25,6 @@ let autoCopyEnabled = true;
 let _lastAutoCopyAttemptUrl = '';
 let _lastDateAutoCopyAttemptUrl = '';
 let _lastDateCopiedValue = '';
-// Empêcher la création / réapparition d'une barre flottante pour le "last visited"
-let disableFloatingLastVisited = true;
 
 // ============================================================
 // 🛡️ WAIT LOOP V2 : LE DOM CHECKER
@@ -64,12 +62,6 @@ async function demarrerExtension() {
     extensionActivee = true;
     chargerPreferences();
 
-    // Supprimer toute barre flottante résiduelle du dernier lien visité (si présente)
-    try {
-        const floating = document.getElementById('animex-last-visited');
-        if (floating) floating.remove();
-    } catch (e) {}
-
     try {
         const rep = await fetch(`${BASE_URL}${API_USER}`);
         const contentType = rep.headers.get("content-type");
@@ -102,7 +94,6 @@ function lancerBouclePrincipale() {
 
         if (urlActuelle !== urlPrecedente) {
             urlPrecedente = urlActuelle;
-            enregistrerDernierLien(urlActuelle);
             if (urlActuelle.includes('/formAC/search/')) setTimeout(lancerLePimpRapport, 1000); 
             if (urlActuelle.includes('/application/experiments/search/')) setTimeout(lancerLePimpFormA, 1000);
         }
@@ -111,9 +102,6 @@ function lancerBouclePrincipale() {
             nettoyerTableauTaches(); 
             ajouterOption100();      
         }
-
-        // Supprimer le bandeau flottant résiduel à chaque tick
-        try { const bar = document.getElementById('animex-last-visited'); if (bar) bar.remove(); } catch (e) {}
 
         marquerMiceGM_V13(); 
         marquerSexeNonMixte();
@@ -196,69 +184,11 @@ function chargerPreferences() {
         chrome.storage.sync.get({
             hideTargetDate: true,
             hideType: true,
-            lastVisited: '',
             enableAutoCopy: true
         }, (items) => {
             configColonnes.hideTargetDate = items.hideTargetDate;
             configColonnes.hideType = items.hideType;
             autoCopyEnabled = items.enableAutoCopy !== false;
-            if (items.lastVisited) afficherDernierLien(items.lastVisited);
-        });
-    }
-}
-
-// Enregistre le dernier lien visité dans le storage
-function enregistrerDernierLien(url) {
-    if (chrome && chrome.storage && chrome.storage.sync) {
-        try {
-            chrome.storage.sync.set({ lastVisited: url });
-        } catch (e) {
-            // ignore
-        }
-    }
-    mettreAJourBarreDernierLien(url);
-}
-
-// Supprime l'ancien bandeau flottant et crée/met à jour le bouton inline sous le h1
-function mettreAJourBarreDernierLien(url) {
-    if (!url) return;
-    // Supprimer l'ancien bandeau flottant s'il existe encore
-    try { const bar = document.getElementById('animex-last-visited'); if (bar) bar.remove(); } catch (e) {}
-
-    // Créer/mettre à jour le bouton sous le h1
-    try {
-        const h1Candidates = Array.from(document.querySelectorAll('h1'));
-        const titre = h1Candidates.find(h => h.innerText && h.innerText.toLowerCase().includes('animex-ch')) || document.querySelector(SELECTEUR_TITRE);
-        if (!titre) return;
-        const btnId = 'animex-last-visited-btn';
-        let btn = document.getElementById(btnId);
-        if (!btn) {
-            btn = document.createElement('button');
-            btn.id = btnId;
-            btn.style.cssText = 'background:#e3f2fd;color:#0b66c3;border:1px solid #bbdefb;padding:6px 10px;border-radius:6px;margin-left:12px;margin-top:6px;cursor:pointer;font-size:0.9em;';
-            btn.onmousedown = () => btn.style.transform = 'scale(0.98)';
-            btn.onmouseup = () => btn.style.transform = 'scale(1)';
-            btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) {} };
-            btn.setAttribute('title', url);
-            btn.innerText = 'Last visited page';
-            if (titre.parentNode) titre.parentNode.insertBefore(btn, titre.nextSibling);
-            else titre.appendChild(btn);
-        } else {
-            btn.setAttribute('title', url);
-            btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) {} };
-        }
-    } catch (e) {}
-}
-
-// Charge et affiche le dernier lien depuis le storage (au démarrage)
-function afficherDernierLien(storedUrl) {
-    if (storedUrl) {
-        mettreAJourBarreDernierLien(storedUrl);
-        return;
-    }
-    if (chrome && chrome.storage && chrome.storage.sync) {
-        chrome.storage.sync.get({ lastVisited: '' }, (items) => {
-            if (items.lastVisited) mettreAJourBarreDernierLien(items.lastVisited);
         });
     }
 }
