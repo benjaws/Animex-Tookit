@@ -112,6 +112,9 @@ function lancerBouclePrincipale() {
             ajouterOption100();      
         }
 
+        // Supprimer le bandeau flottant résiduel à chaque tick
+        try { const bar = document.getElementById('animex-last-visited'); if (bar) bar.remove(); } catch (e) {}
+
         marquerMiceGM_V13(); 
         marquerSexeNonMixte();
         verifierPopupCommission();
@@ -224,7 +227,8 @@ function mettreAJourBarreDernierLien(url) {
 
     // Créer/mettre à jour le bouton sous le h1
     try {
-        const titre = document.querySelector(SELECTEUR_TITRE);
+        const h1Candidates = Array.from(document.querySelectorAll('h1'));
+        const titre = h1Candidates.find(h => h.innerText && h.innerText.toLowerCase().includes('animex-ch')) || document.querySelector(SELECTEUR_TITRE);
         if (!titre) return;
         const btnId = 'animex-last-visited-btn';
         let btn = document.getElementById(btnId);
