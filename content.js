@@ -216,10 +216,34 @@ function enregistrerDernierLien(url) {
     mettreAJourBarreDernierLien(url);
 }
 
-// Supprime tout élément visuel lié au "last visited" (bandeau ou bouton)
+// Supprime l'ancien bandeau flottant et crée/met à jour le bouton inline sous le h1
 function mettreAJourBarreDernierLien(url) {
-    try { const el = document.getElementById('animex-last-visited'); if (el) el.remove(); } catch (e) {}
-    try { const el = document.getElementById('animex-last-visited-btn'); if (el) el.remove(); } catch (e) {}
+    if (!url) return;
+    // Supprimer l'ancien bandeau flottant s'il existe encore
+    try { const bar = document.getElementById('animex-last-visited'); if (bar) bar.remove(); } catch (e) {}
+
+    // Créer/mettre à jour le bouton sous le h1
+    try {
+        const titre = document.querySelector(SELECTEUR_TITRE);
+        if (!titre) return;
+        const btnId = 'animex-last-visited-btn';
+        let btn = document.getElementById(btnId);
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.id = btnId;
+            btn.style.cssText = 'background:#e3f2fd;color:#0b66c3;border:1px solid #bbdefb;padding:6px 10px;border-radius:6px;margin-left:12px;margin-top:6px;cursor:pointer;font-size:0.9em;';
+            btn.onmousedown = () => btn.style.transform = 'scale(0.98)';
+            btn.onmouseup = () => btn.style.transform = 'scale(1)';
+            btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) {} };
+            btn.setAttribute('title', url);
+            btn.innerText = 'Last visited page';
+            if (titre.parentNode) titre.parentNode.insertBefore(btn, titre.nextSibling);
+            else titre.appendChild(btn);
+        } else {
+            btn.setAttribute('title', url);
+            btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) {} };
+        }
+    } catch (e) {}
 }
 
 // Charge et affiche le dernier lien depuis le storage (au démarrage)
