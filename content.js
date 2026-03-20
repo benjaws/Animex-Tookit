@@ -216,49 +216,10 @@ function enregistrerDernierLien(url) {
     mettreAJourBarreDernierLien(url);
 }
 
-// Met à jour ou crée la barre affichant le dernier lien en haut de la page
+// Supprime tout élément visuel lié au "last visited" (bandeau ou bouton)
 function mettreAJourBarreDernierLien(url) {
-    if (!url) return;
-    // Supprimer toute ancienne barre flottante résiduelle (id 'animex-last-visited')
-    try {
-        const old = document.getElementById('animex-last-visited');
-        if (old) old.remove();
-    } catch (e) {}
-    // Insérer uniquement le bouton sous le <h1> contenant "animex-ch". Pas de barre flottante.
-    if (disableFloatingLastVisited) {
-        // s'assurer de ne pas recréer une ancienne "bar" par erreur
-        try { const bar = document.getElementById('animex-last-visited'); if (bar) bar.remove(); } catch (e) {}
-    }
-    try {
-        const h1Candidates = Array.from(document.querySelectorAll('h1'));
-        const titre = h1Candidates.find(h => h.innerText && h.innerText.toLowerCase().includes('animex-ch')) || document.querySelector(SELECTEUR_TITRE);
-        if (!titre) return; // pas de titre ciblé -> ne rien afficher
-        const btnId = 'animex-last-visited-btn';
-        let btn = document.getElementById(btnId);
-        const displayText = url.length > 80 ? url.slice(0, 80) + '…' : url;
-        if (!btn) {
-            btn = document.createElement('button');
-            btn.id = btnId;
-            btn.style.cssText = 'background:#e3f2fd;color:#0b66c3;border:1px solid #bbdefb;padding:6px 10px;border-radius:6px;margin-left:12px;margin-top:6px;cursor:pointer;font-size:0.9em;';
-            btn.onmousedown = () => btn.style.transform = 'scale(0.98)';
-            btn.onmouseup = () => btn.style.transform = 'scale(1)';
-            btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) { console.warn('animex open url failed', ex); } };
-            btn.setAttribute('title', url);
-            btn.innerText = 'Last visited page';
-            if (titre.parentNode) titre.parentNode.insertBefore(btn, titre.nextSibling);
-            else titre.appendChild(btn);
-        } else {
-            btn.setAttribute('title', url);
-            btn.innerText = 'Last visited page';
-            btn.onclick = (e) => { e.preventDefault(); try { window.open(url, '_blank'); } catch (ex) { console.warn('animex open url failed', ex); } };
-            // ensure small offset
-            btn.style.marginTop = '6px';
-        }
-        return;
-    } catch (e) {
-        console.warn('mettreAJourBarreDernierLien: bouton sous h1 failed', e);
-        return;
-    }
+    try { const el = document.getElementById('animex-last-visited'); if (el) el.remove(); } catch (e) {}
+    try { const el = document.getElementById('animex-last-visited-btn'); if (el) el.remove(); } catch (e) {}
 }
 
 // Charge et affiche le dernier lien depuis le storage (au démarrage)
