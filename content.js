@@ -25,6 +25,8 @@ let autoCopyEnabled = true;
 let _lastAutoCopyAttemptUrl = '';
 let _lastDateAutoCopyAttemptUrl = '';
 let _lastDateCopiedValue = '';
+// Empêcher la création / réapparition d'une barre flottante pour le "last visited"
+let disableFloatingLastVisited = true;
 
 // ============================================================
 // 🛡️ WAIT LOOP V2 : LE DOM CHECKER
@@ -61,6 +63,12 @@ async function demarrerExtension() {
 
     extensionActivee = true;
     chargerPreferences();
+
+    // Supprimer toute barre flottante résiduelle du dernier lien visité (si présente)
+    try {
+        const floating = document.getElementById('animex-last-visited');
+        if (floating) floating.remove();
+    } catch (e) {}
 
     try {
         const rep = await fetch(`${BASE_URL}${API_USER}`);
@@ -216,8 +224,11 @@ function mettreAJourBarreDernierLien(url) {
         const old = document.getElementById('animex-last-visited');
         if (old) old.remove();
     } catch (e) {}
-
     // Insérer uniquement le bouton sous le <h1> contenant "animex-ch". Pas de barre flottante.
+    if (disableFloatingLastVisited) {
+        // s'assurer de ne pas recréer une ancienne "bar" par erreur
+        try { const bar = document.getElementById('animex-last-visited'); if (bar) bar.remove(); } catch (e) {}
+    }
     try {
         const h1Candidates = Array.from(document.querySelectorAll('h1'));
         const titre = h1Candidates.find(h => h.innerText && h.innerText.toLowerCase().includes('animex-ch')) || document.querySelector(SELECTEUR_TITRE);
