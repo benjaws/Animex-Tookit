@@ -94,6 +94,7 @@ function lancerBouclePrincipale() {
 
         if (urlActuelle !== urlPrecedente) {
             urlPrecedente = urlActuelle;
+            enregistrerDernierLien(urlActuelle);
             if (urlActuelle.includes('/formAC/search/')) setTimeout(lancerLePimpRapport, 1000); 
             if (urlActuelle.includes('/application/experiments/search/')) setTimeout(lancerLePimpFormA, 1000);
         }
@@ -190,7 +191,7 @@ function chargerPreferences() {
             configColonnes.hideTargetDate = items.hideTargetDate;
             configColonnes.hideType = items.hideType;
             autoCopyEnabled = items.enableAutoCopy !== false;
-            // suppression de l'affichage du dernier lien visité : ne rien faire
+            if (items.lastVisited) afficherDernierLien(items.lastVisited);
         });
     }
 }
@@ -513,26 +514,29 @@ function ajouterOption100() {
 }
 
 function creerEtOuvrirPopup(titreHeader, contenuHtml) {
-    const ancien = document.getElementById('animex-popup-overlay');
-    if (ancien) ancien.remove();
-    const overlay = document.createElement('div');
-    overlay.id = 'animex-popup-overlay';
-    overlay.style.cssText = "position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 9999; display: flex; justify-content: center; align-items: center;";
-    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
-    const modal = document.createElement('div');
-    modal.style.cssText = "background: white; width: 600px; max-width: 90%; max-height: 80vh; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; font-family: sans-serif; box-shadow: 0 10px 25px rgba(0,0,0,0.5);";
-    const couleurHeader = titreHeader.includes('CHARGES') ? '#d32f2f' : '#F57C00';
-    const header = document.createElement('div');
-    header.style.cssText = `background: ${couleurHeader}; color: white; padding: 15px; font-size: 18px; font-weight: bold; display: flex; justify-content: space-between;`;
-    header.innerHTML = `<span>${titreHeader}</span><span style='cursor:pointer;' id='close-popup'>&times;</span>`;
-    const body = document.createElement('div');
-    body.style.cssText = "padding: 20px; overflow-y: auto; color: #333; line-height: 1.5; font-size: 14px;";
-    body.innerHTML = contenuHtml;
-    modal.appendChild(header);
-    modal.appendChild(body);
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-    document.getElementById('close-popup').onclick = () => overlay.remove();
+    try {
+        // Remplacer le popup modal par l'ouverture d'une nouvelle fenêtre (pas d'overlay)
+        const w = window.open('', '_blank');
+        if (!w) {
+            // fallback : écrire dans un élément non-modal sous le titre
+            const titre = document.querySelector(SELECTEUR_TITRE) || document.body;
+            const containerId = 'animex-inline-popup';
+            let cont = document.getElementById(containerId);
+            if (cont) cont.remove();
+            cont = document.createElement('div');
+            cont.id = containerId;
+            cont.style.cssText = 'background:#fff;border:1px solid #ddd;padding:12px;margin-top:12px;border-radius:6px;max-width:90%;box-shadow:0 2px 6px rgba(0,0,0,0.08);';
+            cont.innerHTML = `<div style="font-weight:700;margin-bottom:8px;">${titreHeader}</div><div>${contenuHtml}</div>`;
+            if (titre.parentNode) titre.parentNode.insertBefore(cont, titre.nextSibling);
+            return;
+        }
+        const html = `<!doctype html><html><head><meta charset="utf-8"><title>${titreHeader}</title><style>body{font-family:sans-serif;padding:18px;color:#222} h1{font-size:18px} .content{line-height:1.4}</style></head><body><h1>${titreHeader}</h1><div class="content">${contenuHtml}</div></body></html>`;
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+    } catch (e) {
+        console.error('creerEtOuvrirPopup fallback error', e);
+    }
 }
 
 // Copie la date depuis <td headers="cpToDate"> vers l'input ayant l'id "lastAttendedDay"
