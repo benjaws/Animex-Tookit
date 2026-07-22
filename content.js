@@ -501,13 +501,15 @@ async function afficherCompteursStatuts() {
         for (let page = 0; page < MAX_PAGES; page++) {
             const url = `${BASE_URL}${API_TASK_SEARCH}?page=${page}&size=${TAILLE_PAGE}&direction=DESC&property=createdOn&activestatus=DRAFT&activestatus=PENDING&activestatus=VALID`;
             // POST requis (405 en GET) ; Content-Type + corps JSON requis (415 sinon) ;
-            // Accept-Language doit être une valeur simple, le serveur rejette le format
-            // composé envoyé par défaut par le navigateur (ex: "fr-CH,fr;q=0.9") en 400.
+            // Accept-Language: "EN" exact (valeur observée sur une requête Angular
+            // qui fonctionne réellement dans DevTools) — toute autre valeur (fr,
+            // fr-CH, ou le format composé par défaut du navigateur) donne 400.
             const rep = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Accept-Language': 'fr-CH'
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Language': 'EN'
                 },
                 body: '{}'
             });
