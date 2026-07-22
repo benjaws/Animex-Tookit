@@ -507,7 +507,7 @@ async function afficherCompteursStatuts() {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Accept-Language': 'fr'
+                    'Accept-Language': 'fr-CH'
                 },
                 body: '{}'
             });
