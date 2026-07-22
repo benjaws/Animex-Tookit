@@ -4,13 +4,30 @@ const API_RAPPORT_PREFIX = '/api/v1/report-ac/';
 const API_FORM_A_PREFIX = '/api/v1/animal-experiment-applications/';
 const API_AUTH_PREFIX = '/api/v1/authorizations/'; 
 const API_REMARKS_BASE = '/api/v1/remarks'; 
-const API_USER = '/api/v1/persons/current-user'; 
-const API_COMMISSION = '/api/v1/commission'; 
+const API_USER = '/api/v1/persons/current-user';
+const API_COMMISSION = '/api/v1/commission';
+const API_TASK_SEARCH = '/api/v1/task/search';
 
-const SELECTEUR_TITRE = 'h1.type'; 
+const SELECTEUR_TITRE = 'h1.type';
+const SELECTEUR_TOOLBAR_TASKS = '.ToolbarContainer .btn-toolbar.pull-right';
 const DEFAULT_TEMPLATE_FALLBACK = `Bonjour,\n\nVoici une demande pour la commission :\n\nCommissaire 1 :\nCommissaire 2 :\n\nSincères salutations,\n\n{FULLNAME}`;
 
-console.log("Animex Toolkit : V28 (EIAM Shield) Chargée.");
+// Libellés lisibles pour les statuts les plus courants ; les statuts non listés
+// s'affichent tels quels (fallback), donc rien n'est jamais masqué.
+const LIBELLES_STATUT_TACHE = {
+    'RECEIVED': 'Reçues',
+    'SUBMITTED': 'Soumises',
+    'RESUBMITTED_WITH_ANSWER': 'Resoumises',
+    'AWAITING_CM_STATEMENT': 'Attente avis CM',
+};
+const COULEURS_STATUT_TACHE = {
+    'RECEIVED': '#1976D2',
+    'SUBMITTED': '#F57C00',
+    'RESUBMITTED_WITH_ANSWER': '#6A1B9A',
+    'AWAITING_CM_STATEMENT': '#C62828',
+};
+
+console.log("Animex Toolkit : V29 (Status Counters) Chargée.");
 
 let urlPrecedente = '';
 let currentUserFullName = "[Utilisateur]"; 
@@ -99,8 +116,9 @@ function lancerBouclePrincipale() {
         }
 
         if (urlActuelle.includes('/task/list')) {
-            nettoyerTableauTaches(); 
-            ajouterOption100();      
+            nettoyerTableauTaches();
+            ajouterOption100();
+            afficherCompteursStatuts();
         }
 
         marquerMiceGM_V13(); 
@@ -440,6 +458,60 @@ function ajouterOption100() {
         const option = document.createElement('option');
         option.value = "100"; option.innerText = "100"; option.classList.add("ng-star-inserted");
         select.appendChild(option);
+    }
+}
+
+// Récupère les tâches actives (DRAFT/PENDING/VALID, comme le filtre par défaut
+// de la liste) et affiche des pastilles de comptage par statut dans la barre
+// d'outils au-dessus du tableau. Une seule tentative par instance de page
+// (comme afficherBadgeVert/afficherBoutonRemarks) : recalculé si Angular
+// recharge la page (navigation SPA).
+async function afficherCompteursStatuts() {
+    try {
+        if (document.getElementById('animex-status-counters')) return;
+        const toolbar = document.querySelector(SELECTEUR_TOOLBAR_TASKS);
+        if (!toolbar) return;
+
+        const url = `${BASE_URL}${API_TASK_SEARCH}?page=0&size=500&direction=DESC&property=createdOn&activestatus=DRAFT&activestatus=PENDING&activestatus=VALID`;
+        const rep = await fetch(url);
+        const contentType = rep.headers.get("content-type");
+        if (!rep.ok || !contentType || !contentType.includes("application/json")) return;
+        const json = await rep.json();
+        const taches = Array.isArray(json.content) ? json.content : [];
+        if (taches.length === 0) return;
+        if (json.totalElements > taches.length) {
+            console.warn(`Animex Toolkit: ${json.totalElements} tâches au total, seules les ${taches.length} premières sont comptées.`);
+        }
+
+        const compteurs = {};
+        taches.forEach(t => {
+            const statut = t.status || (t.experiment && t.experiment.status) || 'AUTRE';
+            compteurs[statut] = (compteurs[statut] || 0) + 1;
+        });
+        const entrees = Object.entries(compteurs).sort((a, b) => b[1] - a[1]);
+
+        const container = document.createElement('div');
+        container.id = 'animex-status-counters';
+        container.style.cssText = 'display:inline-flex; align-items:center; gap:6px; margin-right:10px; vertical-align:middle;';
+
+        const total = document.createElement('span');
+        total.innerText = `${taches.length} tâche${taches.length > 1 ? 's' : ''}`;
+        total.style.cssText = 'font-size:0.75em; color:#555; font-weight:bold; margin-right:4px;';
+        container.appendChild(total);
+
+        entrees.forEach(([statut, nb]) => {
+            const pill = document.createElement('span');
+            const libelle = LIBELLES_STATUT_TACHE[statut] || statut;
+            pill.innerText = `${libelle} : ${nb}`;
+            pill.title = statut;
+            const couleur = COULEURS_STATUT_TACHE[statut] || '#616161';
+            pill.style.cssText = `background-color:${couleur}; color:white; font-size:0.7em; font-weight:bold; padding:3px 8px; border-radius:10px; display:inline-block; white-space:nowrap;`;
+            container.appendChild(pill);
+        });
+
+        toolbar.appendChild(container);
+    } catch (err) {
+        console.error('Animex Toolkit: afficherCompteursStatuts error', err);
     }
 }
 
