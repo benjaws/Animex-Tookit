@@ -462,6 +462,10 @@ function ajouterOption100() {
 }
 
 let _statusCountersEnCours = false; // évite les rafales de requêtes : la boucle principale tourne toutes les 800ms
+let _statusCountersDerniereTentative = 0; // timestamp du dernier essai (réussi ou raté)
+let _statusCountersEchecsConsecutifs = 0;
+const STATUS_COUNTERS_COOLDOWN_MS = 5 * 60 * 1000; // 5 min minimum entre deux tentatives après un échec
+const STATUS_COUNTERS_MAX_ECHECS = 3; // au-delà, on abandonne pour le reste de la session (jusqu'à F5)
 
 // Récupère les tâches actives (DRAFT/PENDING/VALID, comme le filtre par défaut
 // de la liste) et affiche des pastilles de comptage par statut dans la barre
@@ -469,15 +473,26 @@ let _statusCountersEnCours = false; // évite les rafales de requêtes : la bouc
 // (comme afficherBadgeVert/afficherBoutonRemarks) : recalculé si Angular
 // recharge la page (navigation SPA).
 //
+// IMPORTANT : ne doit jamais insister en cas d'échec (risque de blocage/ban
+// côté serveur fédéral). En cas d'erreur : pas de nouvelle tentative avant
+// 5 minutes, et abandon complet après 3 échecs consécutifs pour la session.
+//
 // Pagine avec la même taille de page que l'appli (size=10) : une taille trop
 // grande (ex: 500) faisait répondre le serveur en 405.
 async function afficherCompteursStatuts() {
     if (document.getElementById('animex-status-counters')) return;
     if (_statusCountersEnCours) return; // une requête est déjà en vol, on ne relance pas par-dessus
+    if (_statusCountersEchecsConsecutifs >= STATUS_COUNTERS_MAX_ECHECS) return; // abandon définitif pour cette session
+
+    const maintenant = Date.now();
+    if (_statusCountersDerniereTentative && (maintenant - _statusCountersDerniereTentative) < STATUS_COUNTERS_COOLDOWN_MS) return; // cooldown après un échec
+
     const toolbar = document.querySelector(SELECTEUR_TOOLBAR_TASKS);
     if (!toolbar) return;
 
     _statusCountersEnCours = true;
+    _statusCountersDerniereTentative = maintenant;
+    let echec = false;
     try {
         const TAILLE_PAGE = 10;
         const MAX_PAGES = 10; // garde-fou (jusqu'à 100 tâches) pour ne jamais boucler indéfiniment
@@ -489,6 +504,7 @@ async function afficherCompteursStatuts() {
             const contentType = rep.headers.get("content-type");
             if (!rep.ok || !contentType || !contentType.includes("application/json")) {
                 console.warn('Animex Toolkit: réponse inattendue de task/search', rep.status, url);
+                if (page === 0) echec = true; // rien récupéré du tout : vrai échec, on recule
                 break;
             }
             const json = await rep.json();
@@ -498,7 +514,14 @@ async function afficherCompteursStatuts() {
             if (taches.length >= totalElements || pageContent.length === 0) break;
         }
 
-        if (taches.length === 0) return;
+        if (echec) {
+            _statusCountersEchecsConsecutifs++;
+            console.warn(`Animex Toolkit: échec compteurs statuts (${_statusCountersEchecsConsecutifs}/${STATUS_COUNTERS_MAX_ECHECS}), pas de nouvel essai avant ${STATUS_COUNTERS_COOLDOWN_MS / 60000} min.`);
+            return;
+        }
+        if (taches.length === 0) return; // pas d'échec réseau, juste aucune tâche active : rien à afficher
+        _statusCountersEchecsConsecutifs = 0; // ce passage a fonctionné, on repart à zéro
+
         if (document.getElementById('animex-status-counters')) return; // recheck après les await (course évitée par le flag, sécurité en plus)
 
         const compteurs = {};
@@ -529,7 +552,8 @@ async function afficherCompteursStatuts() {
 
         toolbar.appendChild(container);
     } catch (err) {
-        console.error('Animex Toolkit: afficherCompteursStatuts error', err);
+        _statusCountersEchecsConsecutifs++;
+        console.error(`Animex Toolkit: afficherCompteursStatuts error (${_statusCountersEchecsConsecutifs}/${STATUS_COUNTERS_MAX_ECHECS}), pas de nouvel essai avant ${STATUS_COUNTERS_COOLDOWN_MS / 60000} min.`, err);
     } finally {
         _statusCountersEnCours = false;
     }
