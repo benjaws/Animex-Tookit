@@ -477,8 +477,8 @@ const STATUS_COUNTERS_MAX_ECHECS = 3; // au-delà, on abandonne pour le reste de
 // côté serveur fédéral). En cas d'erreur : pas de nouvelle tentative avant
 // 5 minutes, et abandon complet après 3 échecs consécutifs pour la session.
 //
-// Pagine avec la même taille de page que l'appli (size=10) : une taille trop
-// grande (ex: 500) faisait répondre le serveur en 405.
+// Une seule requête size=100 (pas de pagination) : le 405 initial venait de
+// la méthode GET et des en-têtes manquants, pas de la taille de page.
 async function afficherCompteursStatuts() {
     if (document.getElementById('animex-status-counters')) return;
     if (_statusCountersEnCours) return; // une requête est déjà en vol, on ne relance pas par-dessus
@@ -494,36 +494,32 @@ async function afficherCompteursStatuts() {
     _statusCountersDerniereTentative = maintenant;
     let echec = false;
     try {
-        const TAILLE_PAGE = 10;
-        const MAX_PAGES = 10; // garde-fou (jusqu'à 100 tâches) pour ne jamais boucler indéfiniment
         let taches = [];
 
-        for (let page = 0; page < MAX_PAGES; page++) {
-            const url = `${BASE_URL}${API_TASK_SEARCH}?page=${page}&size=${TAILLE_PAGE}&direction=DESC&property=createdOn&activestatus=DRAFT&activestatus=PENDING&activestatus=VALID`;
-            // POST requis (405 en GET) ; Content-Type + corps JSON requis (415 sinon) ;
-            // Accept-Language: "EN" exact (valeur observée sur une requête Angular
-            // qui fonctionne réellement dans DevTools) — toute autre valeur (fr,
-            // fr-CH, ou le format composé par défaut du navigateur) donne 400.
-            const rep = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json, text/plain, */*',
-                    'Accept-Language': 'EN'
-                },
-                body: '{}'
-            });
-            const contentType = rep.headers.get("content-type");
-            if (!rep.ok || !contentType || !contentType.includes("application/json")) {
-                console.warn('Animex Toolkit: réponse inattendue de task/search', rep.status, url);
-                if (page === 0) echec = true; // rien récupéré du tout : vrai échec, on recule
-                break;
-            }
+        const url = `${BASE_URL}${API_TASK_SEARCH}?page=0&size=100&direction=DESC&property=createdOn&activestatus=DRAFT&activestatus=PENDING&activestatus=VALID`;
+        // POST requis (405 en GET) ; Content-Type + corps JSON requis (415 sinon) ;
+        // Accept-Language: "EN" exact (valeur observée sur une requête Angular
+        // qui fonctionne réellement dans DevTools) — toute autre valeur (fr,
+        // fr-CH, ou le format composé par défaut du navigateur) donne 400.
+        const rep = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'EN'
+            },
+            body: '{}'
+        });
+        const contentType = rep.headers.get("content-type");
+        if (!rep.ok || !contentType || !contentType.includes("application/json")) {
+            console.warn('Animex Toolkit: réponse inattendue de task/search', rep.status, url);
+            echec = true;
+        } else {
             const json = await rep.json();
             const pageContent = Array.isArray(json.content) ? json.content : [];
-            taches = taches.concat(pageContent);
-            const totalElements = json.totalElements || taches.length;
-            if (taches.length >= totalElements || pageContent.length === 0) break;
+            // Uniquement les demandes d'expérimentation (EXPERIMENT_APPLICATION) :
+            // on ignore FACILITY_APPLICATION, REPORT_AC, etc. pour ce comptage.
+            taches = pageContent.filter(t => t.objectType === 'EXPERIMENT_APPLICATION');
         }
 
         if (echec) {
