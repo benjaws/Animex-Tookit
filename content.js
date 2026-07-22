@@ -500,10 +500,15 @@ async function afficherCompteursStatuts() {
 
         for (let page = 0; page < MAX_PAGES; page++) {
             const url = `${BASE_URL}${API_TASK_SEARCH}?page=${page}&size=${TAILLE_PAGE}&direction=DESC&property=createdOn&activestatus=DRAFT&activestatus=PENDING&activestatus=VALID`;
-            // POST requis (405 en GET) ; le serveur exige aussi un Content-Type + corps JSON, même vide (415 sinon)
+            // POST requis (405 en GET) ; Content-Type + corps JSON requis (415 sinon) ;
+            // Accept-Language doit être une valeur simple, le serveur rejette le format
+            // composé envoyé par défaut par le navigateur (ex: "fr-CH,fr;q=0.9") en 400.
             const rep = await fetch(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept-Language': 'fr'
+                },
                 body: '{}'
             });
             const contentType = rep.headers.get("content-type");
