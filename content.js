@@ -541,11 +541,11 @@ async function afficherCompteursStatuts() {
 
         const container = document.createElement('div');
         container.id = 'animex-status-counters';
-        container.style.cssText = 'display:inline-flex; align-items:center; gap:6px; margin-right:10px; vertical-align:middle;';
+        container.style.cssText = 'display:inline-flex; align-items:center; gap:8px; margin-right:12px; vertical-align:middle;';
 
         const total = document.createElement('span');
         total.innerText = `${taches.length} tâche${taches.length > 1 ? 's' : ''}`;
-        total.style.cssText = 'font-size:0.75em; color:#555; font-weight:bold; margin-right:4px;';
+        total.style.cssText = 'font-size:0.9em; color:#555; font-weight:bold; margin-right:4px;';
         container.appendChild(total);
 
         entrees.forEach(([statut, nb]) => {
@@ -554,11 +554,13 @@ async function afficherCompteursStatuts() {
             pill.innerText = `${libelle} : ${nb}`;
             pill.title = statut;
             const couleur = COULEURS_STATUT_TACHE[statut] || '#616161';
-            pill.style.cssText = `background-color:${couleur}; color:white; font-size:0.7em; font-weight:bold; padding:3px 8px; border-radius:10px; display:inline-block; white-space:nowrap;`;
+            pill.style.cssText = `background-color:${couleur}; color:white; font-size:0.85em; font-weight:bold; padding:5px 11px; border-radius:12px; display:inline-block; white-space:nowrap;`;
             container.appendChild(pill);
         });
 
-        toolbar.appendChild(container);
+        // Placé juste avant le div .btn-toolbar.pull-right (pas dedans), pour
+        // apparaître à gauche du bouton Export plutôt qu'à sa droite/dedans.
+        toolbar.parentNode.insertBefore(container, toolbar);
     } catch (err) {
         _statusCountersEchecsConsecutifs++;
         console.error(`Animex Toolkit: afficherCompteursStatuts error (${_statusCountersEchecsConsecutifs}/${STATUS_COUNTERS_MAX_ECHECS}), pas de nouvel essai avant ${STATUS_COUNTERS_COOLDOWN_MS / 60000} min.`, err);
