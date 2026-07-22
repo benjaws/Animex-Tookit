@@ -461,27 +461,45 @@ function ajouterOption100() {
     }
 }
 
+let _statusCountersEnCours = false; // évite les rafales de requêtes : la boucle principale tourne toutes les 800ms
+
 // Récupère les tâches actives (DRAFT/PENDING/VALID, comme le filtre par défaut
 // de la liste) et affiche des pastilles de comptage par statut dans la barre
 // d'outils au-dessus du tableau. Une seule tentative par instance de page
 // (comme afficherBadgeVert/afficherBoutonRemarks) : recalculé si Angular
 // recharge la page (navigation SPA).
+//
+// Pagine avec la même taille de page que l'appli (size=10) : une taille trop
+// grande (ex: 500) faisait répondre le serveur en 405.
 async function afficherCompteursStatuts() {
-    try {
-        if (document.getElementById('animex-status-counters')) return;
-        const toolbar = document.querySelector(SELECTEUR_TOOLBAR_TASKS);
-        if (!toolbar) return;
+    if (document.getElementById('animex-status-counters')) return;
+    if (_statusCountersEnCours) return; // une requête est déjà en vol, on ne relance pas par-dessus
+    const toolbar = document.querySelector(SELECTEUR_TOOLBAR_TASKS);
+    if (!toolbar) return;
 
-        const url = `${BASE_URL}${API_TASK_SEARCH}?page=0&size=500&direction=DESC&property=createdOn&activestatus=DRAFT&activestatus=PENDING&activestatus=VALID`;
-        const rep = await fetch(url);
-        const contentType = rep.headers.get("content-type");
-        if (!rep.ok || !contentType || !contentType.includes("application/json")) return;
-        const json = await rep.json();
-        const taches = Array.isArray(json.content) ? json.content : [];
-        if (taches.length === 0) return;
-        if (json.totalElements > taches.length) {
-            console.warn(`Animex Toolkit: ${json.totalElements} tâches au total, seules les ${taches.length} premières sont comptées.`);
+    _statusCountersEnCours = true;
+    try {
+        const TAILLE_PAGE = 10;
+        const MAX_PAGES = 10; // garde-fou (jusqu'à 100 tâches) pour ne jamais boucler indéfiniment
+        let taches = [];
+
+        for (let page = 0; page < MAX_PAGES; page++) {
+            const url = `${BASE_URL}${API_TASK_SEARCH}?page=${page}&size=${TAILLE_PAGE}&direction=DESC&property=createdOn&activestatus=DRAFT&activestatus=PENDING&activestatus=VALID`;
+            const rep = await fetch(url);
+            const contentType = rep.headers.get("content-type");
+            if (!rep.ok || !contentType || !contentType.includes("application/json")) {
+                console.warn('Animex Toolkit: réponse inattendue de task/search', rep.status, url);
+                break;
+            }
+            const json = await rep.json();
+            const pageContent = Array.isArray(json.content) ? json.content : [];
+            taches = taches.concat(pageContent);
+            const totalElements = json.totalElements || taches.length;
+            if (taches.length >= totalElements || pageContent.length === 0) break;
         }
+
+        if (taches.length === 0) return;
+        if (document.getElementById('animex-status-counters')) return; // recheck après les await (course évitée par le flag, sécurité en plus)
 
         const compteurs = {};
         taches.forEach(t => {
@@ -512,6 +530,8 @@ async function afficherCompteursStatuts() {
         toolbar.appendChild(container);
     } catch (err) {
         console.error('Animex Toolkit: afficherCompteursStatuts error', err);
+    } finally {
+        _statusCountersEnCours = false;
     }
 }
 
