@@ -500,7 +500,12 @@ async function afficherCompteursStatuts() {
 
         for (let page = 0; page < MAX_PAGES; page++) {
             const url = `${BASE_URL}${API_TASK_SEARCH}?page=${page}&size=${TAILLE_PAGE}&direction=DESC&property=createdOn&activestatus=DRAFT&activestatus=PENDING&activestatus=VALID`;
-            const rep = await fetch(url, { method: 'POST' }); // l'endpoint n'accepte pas GET (405) malgré les filtres en query string
+            // POST requis (405 en GET) ; le serveur exige aussi un Content-Type + corps JSON, même vide (415 sinon)
+            const rep = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+            });
             const contentType = rep.headers.get("content-type");
             if (!rep.ok || !contentType || !contentType.includes("application/json")) {
                 console.warn('Animex Toolkit: réponse inattendue de task/search', rep.status, url);
