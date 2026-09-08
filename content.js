@@ -1167,7 +1167,38 @@ function creerEtOuvrirPopup(titreHeader, contenuHtml) {
 const _certificatsTelecharges = new Set();
 
 /**
- * Déclenche le téléchargement du certificat listé dans le modal de formation.
+ * Tableau des documents de présence, et lui seul.
+ *
+ * Le modal empile plusieurs sections de documents — ceux du cours, ceux de la
+ * présence — bâties sur le même gabarit de tableau. Seuls les seconds portent
+ * le certificat à archiver, et rien ne les distingue dans les lignes
+ * elles-mêmes : c'est l'intitulé qui les précède qui fait foi.
+ *
+ * On repart donc de cet intitulé et on prend le premier tableau qui le suit
+ * dans l'ordre du document, en s'arrêtant net si un autre intitulé se présente
+ * avant — signe que la section est vide et que le tableau suivant appartient
+ * déjà à autre chose.
+ */
+function trouverTableauDocumentsPresence() {
+    const entete = document.querySelector('app-title-header[label="lblAttendanceDocuments"]')
+        || [...document.querySelectorAll('app-title-header')].find(e =>
+            /attendance\s+documents/i.test(e.textContent || ''));
+    if (!entete) return null;
+
+    const reperes = [...document.querySelectorAll('app-title-header, table')];
+    const depart = reperes.indexOf(entete);
+    if (depart === -1) return null;
+
+    for (let i = depart + 1; i < reperes.length; i++) {
+        const noeud = reperes[i];
+        if (noeud.tagName === 'TABLE') return noeud;
+        return null; // un autre intitulé : la section n'a pas de tableau
+    }
+    return null;
+}
+
+/**
+ * Déclenche le téléchargement du certificat de présence, à l'ouverture du modal.
  *
  * Le lien ne porte aucune URL — « javascript:void(0) » — c'est Angular qui
  * produit le fichier au clic. Il n'y a donc rien à passer à l'API de
@@ -1185,10 +1216,10 @@ function telechargerCertificatDuModal() {
             || document.querySelector('[formcontrolname="approvedDays"]');
         if (!ancre) return;
 
-        const modal = ancre.closest('.modal, .modal-content, [role="dialog"], form') || ancre.parentElement;
-        if (!modal) return;
+        const tableau = trouverTableauDocumentsPresence();
+        if (!tableau) return;
 
-        modal.querySelectorAll('tr').forEach(ligne => {
+        tableau.querySelectorAll('tr').forEach(ligne => {
             const celluleNom = ligne.querySelector('td[headers="name"]');
             const libelle = (celluleNom?.textContent || '').trim();
             if (!libelle || _certificatsTelecharges.has(libelle)) return;
@@ -1209,7 +1240,7 @@ function telechargerCertificatDuModal() {
             if (!lien) return;
 
             _certificatsTelecharges.add(libelle);
-            console.log(`Animex Toolkit: téléchargement du certificat « ${libelle} »`);
+            console.log(`Animex Toolkit: téléchargement du certificat de présence « ${libelle} »`);
 
             // Prévenir avant de cliquer : le fichier peut arriver tout de suite.
             chrome.runtime.sendMessage({ type: 'attendre-certificat' }, () => {
