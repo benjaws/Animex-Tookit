@@ -132,6 +132,7 @@ function lancerBouclePrincipale() {
 
         marquerMiceGM_V13(); 
         marquerSexeNonMixte();
+        marquerAnnonces();
         verifierPopupCommission();
         copierJoursDemandes();
         copierDateVersInput();
@@ -821,6 +822,35 @@ function marquerMiceGM_V13() {
                 el.appendChild(badge);
             }
         }
+    });
+}
+
+/**
+ * Signale la présence d'annonces sur la demande.
+ *
+ * Le bloc « Announcements » n'apparaît que lorsqu'il y en a, mais rien ne le
+ * distingue du reste de la page : il se lit comme un intitulé de section
+ * ordinaire et passe inaperçu à la lecture.
+ *
+ * Ne marque que les éléments dont le texte se réduit à ce mot : le paragraphe
+ * porte un commentaire Angular vide (« Announcements <!----> ») qui ne compte
+ * pas dans textContent, tandis qu'un conteneur englobant en contiendrait bien
+ * davantage et se retrouverait surligné en entier.
+ */
+function marquerAnnonces() {
+    document.querySelectorAll('p, h2, h3, h4, h5, span, div, label, legend').forEach(el => {
+        if (el.getAttribute('data-annonce-tagged')) return;
+        if (el.children.length > 0) return;
+        if ((el.textContent || '').trim().toLowerCase() !== 'announcements') return;
+
+        el.setAttribute('data-annonce-tagged', 'true');
+        el.style.color = '#c62828';
+        el.style.fontWeight = 'bold';
+
+        const badge = document.createElement('span');
+        badge.innerHTML = ' ⚠️';
+        badge.style.cssText = 'font-size: 1.1em; margin-left: 8px; vertical-align: middle;';
+        el.appendChild(badge);
     });
 }
 
