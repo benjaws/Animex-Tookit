@@ -344,6 +344,7 @@ function collecterMembres(donnees) {
         retenus.push({
             email,
             prenom,
+            nomFamille: (personne.lastName || '').trim(),
             nomComplet: (personne.fullName || `${personne.firstName || ''} ${personne.lastName || ''}`).trim() || email,
             role: membre?.roleAbbreviation || membre?.role || '',
         });
@@ -499,6 +500,49 @@ function dateDuJourCH() {
  * Ligne prête à coller dans le cahier de suivi. Séparée par des tabulations :
  * collée dans Excel, chaque champ tombe dans sa propre colonne.
  */
+/** Minuscules sans accent ni ponctuation, pour comparer des noms saisis à la main. */
+function normaliserNom(valeur) {
+    return String(valeur || '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z\s-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+const CIVILITES = /^(m|mr|mme|mlle|monsieur|madame|mademoiselle|dr|pr|prof|professeur)\.?\s+/i;
+
+/**
+ * Prénom du membre désigné par une mention libre de l'avis.
+ *
+ * L'avis nomme les commissaires comme on s'adresse à eux — « M Perréaz »,
+ * « Mme Kirchdoerffer » — alors que le cahier de suivi n'accepte que des
+ * prénoms, via une liste déroulante qui rejette toute autre valeur. La
+ * correspondance se fait sur le nom de famille, que l'API fournit à côté du
+ * prénom ; civilité et accents sont ignorés, l'avis étant saisi à la main.
+ *
+ * Renvoie une chaîne vide si personne ne correspond : mieux vaut une case à
+ * compléter qu'une valeur que la liste déroulante refusera.
+ */
+function resoudrePrenomCommissaire(mention) {
+    const sansCivilite = String(mention || '').trim().replace(CIVILITES, '');
+    const cible = normaliserNom(sansCivilite);
+    if (!cible) return '';
+
+    for (const membre of currentCommissionMembers) {
+        const nom = normaliserNom(membre.nomFamille);
+        if (nom && (cible === nom || cible.includes(nom) || nom.includes(cible))) return membre.prenom;
+    }
+    // Le prénom a pu être écrit directement, ou le nom complet.
+    for (const membre of currentCommissionMembers) {
+        const prenom = normaliserNom(membre.prenom);
+        const complet = normaliserNom(membre.nomComplet);
+        if (prenom && cible === prenom) return membre.prenom;
+        if (complet && (cible === complet || complet.includes(cible))) return membre.prenom;
+    }
+    return '';
+}
+
 /**
  * Les deux commissaires à reporter, selon le nombre de membres saisis.
  *
@@ -515,14 +559,25 @@ function determinerCommissaires(corpsDuMessage) {
     const prenoms = currentCommissionMembers.map(m => m.prenom).filter(Boolean);
 
     if (prenoms.length === 1) {
-        return { commissaire1: prenoms[0], commissaire2: '', simplifiee: true, incomplet: false };
+        return { commissaire1: prenoms[0], commissaire2: '', simplifiee: true, nonResolus: [], incomplet: false };
     }
 
     const duTexte = extraireCommissaires(corpsDuMessage);
+    const commissaire1 = resoudrePrenomCommissaire(duTexte.commissaire1);
+    const commissaire2 = resoudrePrenomCommissaire(duTexte.commissaire2);
+
+    // Nommé dans l'avis mais introuvable parmi les membres : la case reste vide
+    // pour ne pas heurter la liste déroulante, et on dit lequel a résisté.
+    const nonResolus = [
+        [duTexte.commissaire1, commissaire1],
+        [duTexte.commissaire2, commissaire2],
+    ].filter(([brut, prenom]) => brut && !prenom).map(([brut]) => brut);
+
     return {
-        commissaire1: duTexte.commissaire1,
-        commissaire2: duTexte.commissaire2,
+        commissaire1,
+        commissaire2,
         simplifiee: false,
+        nonResolus,
         incomplet: prenoms.length > 1 && !duTexte.commissaire1 && !duTexte.commissaire2,
     };
 }
@@ -590,7 +645,15 @@ function afficherRappelSuivi(ligne, copieOk, etatCommissaires) {
     etat.style.cssText = 'margin-bottom:8px;';
 
     let avertissement = null;
-    if (etatCommissaires && etatCommissaires.incomplet) {
+    if (etatCommissaires && etatCommissaires.nonResolus && etatCommissaires.nonResolus.length > 0) {
+        const avert = document.createElement('div');
+        const noms = etatCommissaires.nonResolus.join(' » et « ');
+        const dispo = currentCommissionMembers.map(m => m.prenom).filter(Boolean).join(', ');
+        avert.textContent = `⚠️ « ${noms} » ne correspond à aucun membre de la commission : la case reste vide.`
+            + (dispo ? ` Prénoms disponibles : ${dispo}.` : '');
+        avert.style.cssText = 'background:#ffebee;border:1px solid #ffcdd2;border-radius:4px;padding:8px;margin-bottom:8px;color:#c62828;';
+        avertissement = avert;
+    } else if (etatCommissaires && etatCommissaires.incomplet) {
         const avert = document.createElement('div');
         avert.textContent = "⚠️ Plusieurs membres dans la commission, mais aucun « Commissaire 1 : … » dans ton avis : les deux colonnes sont vides, à compléter à la main.";
         avert.style.cssText = 'background:#ffebee;border:1px solid #ffcdd2;border-radius:4px;padding:8px;margin-bottom:8px;color:#c62828;';
