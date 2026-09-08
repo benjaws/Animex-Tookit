@@ -39,6 +39,9 @@ let configColonnes = {
     hideType: true
 };
 let autoCopyEnabled = true;
+// URL pour laquelle les destinataires de commission ont déjà été demandés :
+// évite de rappeler l'API à chaque tick du MutationObserver.
+let _emailsChargesPourUrl = '';
 let _lastAutoCopyAttemptUrl = '';
 let _lastDateAutoCopyAttemptUrl = '';
 let _lastDateCopiedValue = '';
@@ -213,7 +216,22 @@ function chargerPreferences() {
 
 function verifierPopupCommission() {
     const textarea = document.getElementById('cantonRemarks');
-    if (!textarea) return;
+    if (!textarea) {
+        // Popup fermé : on réarme pour la prochaine demande consultée.
+        _emailsChargesPourUrl = '';
+        return;
+    }
+
+    // Les destinataires étaient chargés uniquement dans la branche
+    // d'auto-remplissage ci-dessous, qui ne s'exécute que sur un textarea vide.
+    // Rouvrir le popup, ou revenir sur un avis déjà rédigé, laissait donc la
+    // liste vide et le bouton SEND EMAIL ne savait à qui écrire — il affichait
+    // « Chargement des emails en cours… » sans jamais aboutir. Le chargement
+    // appartient à l'ouverture du popup, pas au remplissage du texte.
+    if (_emailsChargesPourUrl !== window.location.href) {
+        _emailsChargesPourUrl = window.location.href;
+        chargerEmailsCommission();
+    }
 
     if (!textarea.disabled && !textarea.getAttribute('data-autofilled') && textarea.value.trim() === '') {
         chrome.storage.sync.get({
@@ -224,7 +242,6 @@ function verifierPopupCommission() {
             textarea.value = template;
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
             textarea.setAttribute('data-autofilled', 'true');
-            chargerEmailsCommission();
         });
     }
 
@@ -234,15 +251,36 @@ function verifierPopupCommission() {
         btnEmail.id = 'animex-email-btn';
         btnEmail.innerHTML = "📧 SEND EMAIL";
         btnEmail.style.cssText = "background-color: #0078D4; color: white; margin-right: 10px; margin-top: 5px; border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold; cursor: pointer; display: inline-block;";
-        btnEmail.onclick = (e) => { e.preventDefault(); ouvrirOutlook(textarea.value); };
+        btnEmail.onclick = (e) => {
+            e.preventDefault();
+            ouvrirOutlook(textarea.value).catch(err => {
+                console.error('Animex Toolkit: envoi email', err);
+                alert("⚠️ Erreur pendant la préparation du mail — détail dans la console (F12).");
+            });
+        };
         btnInvite.parentNode.insertBefore(btnEmail, btnInvite);
     }
 }
 
+/**
+ * Dernier segment d'identifiant de l'URL courante.
+ * Le simple href.split('/').pop() ramenait la query string avec lui
+ * (« 1234?tab=x »), et l'API répondait alors en erreur — silencieusement, le
+ * catch de l'appelant se contentant de logger. Le routage Angular passant par
+ * le hash, on le lit en priorité.
+ */
+function extraireIdDeLUrl() {
+    const source = window.location.hash
+        ? window.location.hash.replace(/^#/, '')
+        : window.location.pathname;
+    const sansQuery = source.split('?')[0].split(';')[0].replace(/\/+$/, '');
+    return sansQuery.split('/').pop() || '';
+}
+
 async function chargerEmailsCommission() {
     try {
-        const urlParts = window.location.href.split('/');
-        const applicationId = urlParts[urlParts.length - 1];
+        const applicationId = extraireIdDeLUrl();
+        if (!applicationId) { console.warn("Animex Toolkit: aucun applicationId dans l'URL"); return; }
         const url = `${BASE_URL}${API_COMMISSION}?applicationId=${applicationId}`;
         const rep = await fetch(url);
         const contentType = rep.headers.get("content-type");
@@ -253,20 +291,172 @@ async function chargerEmailsCommission() {
             membres.forEach(m => {
                 if (m.person && m.person.email) currentCommissionEmails.push(m.person.email);
             });
+            console.log(`Animex Toolkit: ${currentCommissionEmails.length} destinataire(s) de commission chargé(s).`);
+        } else {
+            console.warn("Animex Toolkit: réponse commission inattendue", rep.status, contentType);
         }
     } catch (err) { console.error("Err Email:", err); }
 }
 
-function ouvrirOutlook(corpsDuMessage) {
-    if (currentCommissionEmails.length === 0) {
-        alert("⚠️ Chargement des emails en cours...");
-        chargerEmailsCommission(); 
-        return;
+/**
+ * Noms des commissaires, lus dans l'avis lui-même : le template les fait saisir
+ * sur des lignes « Commissaire 1 : … ». Les relire ici évite de les redemander
+ * dans un second formulaire, au risque qu'ils divergent du texte envoyé.
+ * Tolère l'absence d'accent, les deux-points optionnels et les espaces.
+ */
+function extraireCommissaires(texte) {
+    const lire = (n) => {
+        const re = new RegExp(`commissaire\\s*${n}\\s*:?[ \\t]*(.*)`, 'i');
+        const m = (texte || '').match(re);
+        return m ? m[1].trim() : '';
+    };
+    return { commissaire1: lire(1), commissaire2: lire(2) };
+}
+
+/** Date du jour au format suisse, tel qu'attendu dans le cahier de suivi. */
+function dateDuJourCH() {
+    return new Date().toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/**
+ * Ligne prête à coller dans le cahier de suivi. Séparée par des tabulations :
+ * collée dans Excel, chaque champ tombe dans sa propre colonne.
+ */
+function construireLigneSuivi(corpsDuMessage) {
+    const { commissaire1, commissaire2 } = extraireCommissaires(corpsDuMessage);
+    return [
+        commissaire1,
+        commissaire2,
+        dateDuJourCH(),
+        currentCommissionEmails.join('; '),
+    ].join('\t');
+}
+
+/**
+ * Copie dans le presse-papier. navigator.clipboard exige un contexte sécurisé
+ * et un geste utilisateur : les deux sont réunis ici (HTTPS + clic), mais le
+ * focus peut être perdu au profit du client mail juste après, d'où la copie
+ * AVANT l'ouverture du mailto, et un repli sur execCommand si l'API refuse.
+ */
+async function copierDansPressePapier(texte) {
+    try {
+        await navigator.clipboard.writeText(texte);
+        return true;
+    } catch (e) {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = texte;
+            ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0;';
+            document.body.appendChild(ta);
+            ta.select();
+            const ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            return ok;
+        } catch (e2) {
+            console.error('Animex Toolkit: copie presse-papier impossible', e2);
+            return false;
+        }
     }
+}
+
+/**
+ * Rappel du cahier de suivi. Volontairement une bannière et non un alert() :
+ * un alert() bloque le thread au moment précis où le client mail s'ouvre, et
+ * se referme d'un réflexe sans avoir été lu. Celle-ci reste à l'écran, montre
+ * ce qui a été copié, et permet de recopier si le presse-papier a été écrasé
+ * entre-temps.
+ */
+function afficherRappelSuivi(ligne, copieOk) {
+    document.getElementById('animex-suivi-banner')?.remove();
+
+    const banner = document.createElement('div');
+    banner.id = 'animex-suivi-banner';
+    banner.style.cssText = [
+        'position:fixed', 'top:16px', 'right:16px', 'z-index:2147483647',
+        'max-width:420px', 'background:#fff8e1', 'border:2px solid #f57c00',
+        'border-radius:8px', 'padding:14px 16px', 'box-shadow:0 4px 16px rgba(0,0,0,.2)',
+        'font-family:system-ui,sans-serif', 'font-size:13px', 'color:#333',
+    ].join(';');
+
+    const titre = document.createElement('div');
+    titre.textContent = '📒 REMPLIR LE CAHIER DE SUIVI !';
+    titre.style.cssText = 'font-weight:bold;font-size:15px;color:#e65100;margin-bottom:8px;';
+
+    const etat = document.createElement('div');
+    etat.textContent = copieOk
+        ? 'Les infos sont dans le presse-papier — colle-les dans Excel (Ctrl+V).'
+        : 'Copie automatique refusée par le navigateur : utilise le bouton ci-dessous.';
+    etat.style.cssText = 'margin-bottom:8px;';
+
+    const apercu = document.createElement('pre');
+    apercu.textContent = ligne.split('\t').join('  |  ');
+    apercu.style.cssText = 'background:#fff;border:1px solid #ffe0b2;border-radius:4px;padding:8px;margin:0 0 10px;white-space:pre-wrap;word-break:break-word;font-size:12px;';
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:8px;';
+
+    const btnCopier = document.createElement('button');
+    btnCopier.textContent = 'Recopier';
+    btnCopier.style.cssText = 'flex:1;padding:7px;border:none;border-radius:4px;background:#f57c00;color:#fff;font-weight:bold;cursor:pointer;';
+    btnCopier.onclick = async () => {
+        const ok = await copierDansPressePapier(ligne);
+        btnCopier.textContent = ok ? 'Copié ✓' : 'Échec';
+        setTimeout(() => { btnCopier.textContent = 'Recopier'; }, 1500);
+    };
+
+    const btnFermer = document.createElement('button');
+    btnFermer.textContent = "C'est noté";
+    btnFermer.style.cssText = 'flex:1;padding:7px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;';
+    btnFermer.onclick = () => banner.remove();
+
+    actions.append(btnCopier, btnFermer);
+    banner.append(titre, etat, apercu, actions);
+    document.body.appendChild(banner);
+}
+
+// Au-delà de cette longueur, l'URL mailto n'est plus transmise intégralement au
+// client mail (limite de la ligne de commande sous Windows, ~2000 caractères
+// une fois l'encodage appliqué). Outlook s'ouvrait alors vide ou tronqué, sans
+// la moindre erreur.
+const MAILTO_LONGUEUR_MAX = 1800;
+
+async function ouvrirOutlook(corpsDuMessage) {
+    if (currentCommissionEmails.length === 0) {
+        // Une seconde chance : la liste peut n'être pas encore revenue de l'API.
+        await chargerEmailsCommission();
+        if (currentCommissionEmails.length === 0) {
+            alert("⚠️ Impossible de récupérer les membres de la commission.\n\nVérifie que la demande est bien ouverte, puis réessaie. Le détail est dans la console (F12).");
+            return;
+        }
+    }
+
     const destinataires = currentCommissionEmails.join(';');
     const sujet = "Commission - Demande d'avis";
-    const bodyEncoded = encodeURIComponent(corpsDuMessage);
-    window.location.href = `mailto:${destinataires}?subject=${encodeURIComponent(sujet)}&body=${bodyEncoded}`;
+
+    // Le presse-papier est rempli AVANT d'ouvrir le client mail : après, la page
+    // a perdu le focus et le navigateur refuse l'écriture.
+    const ligneSuivi = construireLigneSuivi(corpsDuMessage);
+    const copieOk = await copierDansPressePapier(ligneSuivi);
+
+    let corpsEnvoye = corpsDuMessage || '';
+    let url = `mailto:${destinataires}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corpsEnvoye)}`;
+    if (url.length > MAILTO_LONGUEUR_MAX) {
+        console.warn(`Animex Toolkit: mailto de ${url.length} caractères, corps omis pour ne pas être tronqué.`);
+        url = `mailto:${destinataires}?subject=${encodeURIComponent(sujet)}`;
+        alert("⚠️ Ton avis est trop long pour être transmis automatiquement à Outlook.\n\nLe mail s'ouvre avec les destinataires et le sujet : copie ton texte depuis le champ de l'avis et colle-le dans le message.");
+    }
+
+    // Un <a> cliqué plutôt qu'une affectation de window.location : dans une SPA
+    // Angular, écrire location.href peut être intercepté par le routeur, et
+    // certains navigateurs ignorent une navigation mailto faite ainsi.
+    const lien = document.createElement('a');
+    lien.href = url;
+    lien.style.display = 'none';
+    document.body.appendChild(lien);
+    lien.click();
+    lien.remove();
+
+    afficherRappelSuivi(ligneSuivi, copieOk);
 }
 
 function marquerMiceGM_V13() {

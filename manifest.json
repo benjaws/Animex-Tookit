@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Animex Toolkit",
-  "version": "2.6",
+  "version": "2.7",
   "description": "Améliore l'interface Animex : Charges, Alertes GM/Sexe, Templates d'emails et Options personnalisables.",
   "icons": {
     "16": "icon16.png",
