@@ -1162,27 +1162,22 @@ function creerEtOuvrirPopup(titreHeader, contenuHtml) {
     }
 }
 
-// Pièces jointes déjà envoyées au téléchargement, par URL : le modal est
-// réinspecté toutes les 800 ms et rouvert plusieurs fois par session, sans quoi
-// le même certificat serait enregistré en boucle.
+// Certificats déjà déclenchés, par libellé de ligne : le modal est réinspecté
+// toutes les 800 ms et rouvert plusieurs fois par session.
 const _certificatsTelecharges = new Set();
 
-// Extensions de fichiers considérées comme un certificat téléchargeable.
-const EXT_CERTIFICAT = /\.(pdf|jpe?g|png|docx?|odt)(\?|$)/i;
-// À défaut d'extension, les routes de l'API qui servent un document.
-const ROUTE_DOCUMENT = /\/(attachment|attachments|document|documents|file|files|download|certificate)s?\//i;
-
 /**
- * Enregistre la pièce jointe du modal de formation dans le dossier des
- * certificats, dès son ouverture.
+ * Déclenche le téléchargement du certificat listé dans le modal de formation.
  *
- * Le lien n'est cherché que dans le conteneur du modal — repéré par les champs
- * que l'extension y remplit déjà — et non dans toute la page : ailleurs, une
- * ancre vers un PDF est un document quelconque, qu'il n'y a aucune raison
- * d'aspirer.
+ * Le lien ne porte aucune URL — « javascript:void(0) » — c'est Angular qui
+ * produit le fichier au clic. Il n'y a donc rien à passer à l'API de
+ * téléchargement : on actionne le lien et on laisse le service worker ranger le
+ * fichier qui en résulte.
  *
- * Le téléchargement passe par le service worker, chrome.downloads n'étant pas
- * exposé aux content scripts.
+ * La cellule d'actions contient aussi Éditer et Supprimer, rendus par les mêmes
+ * ancres sans libellé. Le tri se fait sur la seule icône de téléchargement, et
+ * toute ancre portant une autre icône est écartée explicitement : se tromper de
+ * lien effacerait le certificat au lieu de l'enregistrer.
  */
 function telechargerCertificatDuModal() {
     try {
@@ -1190,34 +1185,41 @@ function telechargerCertificatDuModal() {
             || document.querySelector('[formcontrolname="approvedDays"]');
         if (!ancre) return;
 
-        // Le modal est le premier ancêtre qui contient aussi des liens ; à
-        // défaut on se rabat sur le formulaire englobant.
         const modal = ancre.closest('.modal, .modal-content, [role="dialog"], form') || ancre.parentElement;
         if (!modal) return;
 
-        const liens = [...modal.querySelectorAll('a[href]')]
-            .filter(a => {
-                const href = a.getAttribute('href') || '';
-                if (!href || href.startsWith('#') || href.startsWith('javascript:')) return false;
-                return a.hasAttribute('download') || EXT_CERTIFICAT.test(href) || ROUTE_DOCUMENT.test(href);
+        modal.querySelectorAll('tr').forEach(ligne => {
+            const celluleNom = ligne.querySelector('td[headers="name"]');
+            const libelle = (celluleNom?.textContent || '').trim();
+            if (!libelle || _certificatsTelecharges.has(libelle)) return;
+
+            const lien = [...ligne.querySelectorAll('td[headers="action"] a')].find(a => {
+                const icones = [...a.querySelectorAll('em')];
+                if (icones.length === 0) return false;
+                // Exigé : l'icône de téléchargement. Interdit : toute autre
+                // action, Supprimer en particulier.
+                const aTelechargement = icones.some(em => em.classList.contains('fa-download'));
+                const aAutreAction = icones.some(em =>
+                    em.classList.contains('fa-times') || em.classList.contains('fa-edit')
+                    || em.classList.contains('fa-trash') || em.classList.contains('fa-pencil'));
+                const libelleAria = (a.getAttribute('aria-label') || '').toLowerCase();
+                const ariaDangereux = /delete|remove|edit|supprim|modifi/.test(libelleAria);
+                return aTelechargement && !aAutreAction && !ariaDangereux;
             });
+            if (!lien) return;
 
-        if (liens.length === 0) return;
+            _certificatsTelecharges.add(libelle);
+            console.log(`Animex Toolkit: téléchargement du certificat « ${libelle} »`);
 
-        liens.forEach(lien => {
-            const url = new URL(lien.getAttribute('href'), window.location.origin).href;
-            if (_certificatsTelecharges.has(url)) return;
-            _certificatsTelecharges.add(url);
-
-            console.log('Animex Toolkit: certificat envoyé au téléchargement', url);
-            chrome.runtime.sendMessage({ type: 'telecharger-certificat', url }, (reponse) => {
+            // Prévenir avant de cliquer : le fichier peut arriver tout de suite.
+            chrome.runtime.sendMessage({ type: 'attendre-certificat' }, () => {
                 if (chrome.runtime.lastError) {
-                    console.error('Animex Toolkit: service worker injoignable', chrome.runtime.lastError.message);
-                    _certificatsTelecharges.delete(url); // réessayable
-                } else if (!reponse?.ok) {
-                    console.error('Animex Toolkit: téléchargement refusé', reponse?.error);
-                    _certificatsTelecharges.delete(url);
+                    console.error('Animex Toolkit: service worker injoignable',
+                        chrome.runtime.lastError.message);
+                    _certificatsTelecharges.delete(libelle); // réessayable
+                    return;
                 }
+                lien.click();
             });
         });
     } catch (err) {
