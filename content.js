@@ -136,6 +136,7 @@ function lancerBouclePrincipale() {
         verifierPopupCommission();
         copierJoursDemandes();
         copierDateVersInput();
+        telechargerCertificatDuModal();
 
     }, 800); 
 }
@@ -1158,6 +1159,69 @@ function creerEtOuvrirPopup(titreHeader, contenuHtml) {
         w.document.close();
     } catch (e) {
         console.error('creerEtOuvrirPopup fallback error', e);
+    }
+}
+
+// Pièces jointes déjà envoyées au téléchargement, par URL : le modal est
+// réinspecté toutes les 800 ms et rouvert plusieurs fois par session, sans quoi
+// le même certificat serait enregistré en boucle.
+const _certificatsTelecharges = new Set();
+
+// Extensions de fichiers considérées comme un certificat téléchargeable.
+const EXT_CERTIFICAT = /\.(pdf|jpe?g|png|docx?|odt)(\?|$)/i;
+// À défaut d'extension, les routes de l'API qui servent un document.
+const ROUTE_DOCUMENT = /\/(attachment|attachments|document|documents|file|files|download|certificate)s?\//i;
+
+/**
+ * Enregistre la pièce jointe du modal de formation dans le dossier des
+ * certificats, dès son ouverture.
+ *
+ * Le lien n'est cherché que dans le conteneur du modal — repéré par les champs
+ * que l'extension y remplit déjà — et non dans toute la page : ailleurs, une
+ * ancre vers un PDF est un document quelconque, qu'il n'y a aucune raison
+ * d'aspirer.
+ *
+ * Le téléchargement passe par le service worker, chrome.downloads n'étant pas
+ * exposé aux content scripts.
+ */
+function telechargerCertificatDuModal() {
+    try {
+        const ancre = document.getElementById('lastAttendedDay')
+            || document.querySelector('[formcontrolname="approvedDays"]');
+        if (!ancre) return;
+
+        // Le modal est le premier ancêtre qui contient aussi des liens ; à
+        // défaut on se rabat sur le formulaire englobant.
+        const modal = ancre.closest('.modal, .modal-content, [role="dialog"], form') || ancre.parentElement;
+        if (!modal) return;
+
+        const liens = [...modal.querySelectorAll('a[href]')]
+            .filter(a => {
+                const href = a.getAttribute('href') || '';
+                if (!href || href.startsWith('#') || href.startsWith('javascript:')) return false;
+                return a.hasAttribute('download') || EXT_CERTIFICAT.test(href) || ROUTE_DOCUMENT.test(href);
+            });
+
+        if (liens.length === 0) return;
+
+        liens.forEach(lien => {
+            const url = new URL(lien.getAttribute('href'), window.location.origin).href;
+            if (_certificatsTelecharges.has(url)) return;
+            _certificatsTelecharges.add(url);
+
+            console.log('Animex Toolkit: certificat envoyé au téléchargement', url);
+            chrome.runtime.sendMessage({ type: 'telecharger-certificat', url }, (reponse) => {
+                if (chrome.runtime.lastError) {
+                    console.error('Animex Toolkit: service worker injoignable', chrome.runtime.lastError.message);
+                    _certificatsTelecharges.delete(url); // réessayable
+                } else if (!reponse?.ok) {
+                    console.error('Animex Toolkit: téléchargement refusé', reponse?.error);
+                    _certificatsTelecharges.delete(url);
+                }
+            });
+        });
+    } catch (err) {
+        console.error('Animex Toolkit: telechargerCertificatDuModal', err);
     }
 }
 

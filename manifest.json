@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Animex Toolkit",
-  "version": "2.7",
+  "version": "2.8",
   "description": "Améliore l'interface Animex : Charges, Alertes GM/Sexe, Templates d'emails et Options personnalisables.",
   "icons": {
     "16": "icon16.png",
@@ -9,8 +9,12 @@
     "128": "icon128.png"
   },
   "permissions": [
-    "storage"
+    "storage",
+    "downloads"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "options_ui": {
     "page": "options.html",
     "open_in_tab": false
@@ -20,7 +24,9 @@
   ],
   "content_scripts": [
     {
-      "matches": ["https://www.animex-ch.blv.admin.ch/*"],
+      "matches": [
+        "https://www.animex-ch.blv.admin.ch/*"
+      ],
       "exclude_matches": [
         "*://*/api/*",
         "*://*/auth/*",
@@ -30,7 +36,9 @@
         "*://feds.eiam.admin.ch/*",
         "*://*.eiam.admin.ch/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ]
