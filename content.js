@@ -277,6 +277,63 @@ function extraireIdDeLUrl() {
     return sansQuery.split('/').pop() || '';
 }
 
+/**
+ * Destinataires de commission, lus dans la réponse de /api/v1/commission.
+ *
+ * Le code d'origine lisait json.commissionMembers, alors que la réponse imbrique
+ * le tout sous applicationCommission : la liste repartait donc toujours vide, et
+ * le bouton SEND EMAIL restait sans destinataire alors que la requête avait
+ * parfaitement abouti. On retrouve désormais le tableau des membres où qu'il
+ * soit dans la réponse, ce qui rend l'extraction insensible à un niveau
+ * d'imbrication qui changerait à nouveau.
+ *
+ * Volontairement ciblé sur ce tableau, et non sur toute chaîne ayant la forme
+ * d'un email : la réponse contient aussi cantonRemarks — le texte libre de
+ * l'avis — et un bloc canton. Y pêcher une adresse au hasard reviendrait à
+ * envoyer un avis de commission à quelqu'un qui n'a rien à en connaître.
+ */
+function trouverMembresCommission(donnees, profondeur = 0) {
+    if (!donnees || typeof donnees !== 'object' || profondeur > 8) return null;
+
+    for (const cle of ['commissionMembers', 'members']) {
+        if (Array.isArray(donnees[cle]) && donnees[cle].length > 0) return donnees[cle];
+    }
+
+    for (const valeur of Object.values(donnees)) {
+        if (valeur && typeof valeur === 'object') {
+            const trouve = trouverMembresCommission(valeur, profondeur + 1);
+            if (trouve) return trouve;
+        }
+    }
+    return null;
+}
+
+/**
+ * Adresses des membres, dédoublonnées. Un membre peut porter son email sur la
+ * personne ou à plat selon les endpoints ; les deux sont acceptés.
+ */
+function collecterEmails(donnees) {
+    const membres = trouverMembresCommission(donnees);
+    if (!membres) return [];
+
+    const emails = [];
+    const vus = new Set();
+    const FORME_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+    membres.forEach(membre => {
+        const brut = membre?.person?.email || membre?.person?.emailAddress
+            || membre?.email || membre?.emailAddress || '';
+        const email = String(brut).trim();
+        if (!FORME_EMAIL.test(email) || vus.has(email.toLowerCase())) return;
+        vus.add(email.toLowerCase());
+        emails.push(email);
+        // Le rôle est journalisé pour repérer d'un coup d'oeil un destinataire
+        // qui n'aurait rien à faire dans la liste.
+        console.log(`Animex Toolkit: membre ${membre?.person?.fullName || email} (${membre?.roleAbbreviation || membre?.role || 'rôle inconnu'})`);
+    });
+    return emails;
+}
+
 async function chargerEmailsCommission() {
     try {
         const applicationId = extraireIdDeLUrl();
@@ -286,12 +343,14 @@ async function chargerEmailsCommission() {
         const contentType = rep.headers.get("content-type");
         if (rep.ok && contentType && contentType.includes("application/json")) {
             const json = await rep.json();
-            currentCommissionEmails = [];
-            const membres = json.commissionMembers || json.members || [];
-            membres.forEach(m => {
-                if (m.person && m.person.email) currentCommissionEmails.push(m.person.email);
-            });
-            console.log(`Animex Toolkit: ${currentCommissionEmails.length} destinataire(s) de commission chargé(s).`);
+            currentCommissionEmails = collecterEmails(json);
+            console.log(`Animex Toolkit: ${currentCommissionEmails.length} destinataire(s) de commission chargé(s).`, currentCommissionEmails);
+            if (currentCommissionEmails.length === 0) {
+                // Aucun email trouvé alors que la requête a abouti : la forme de
+                // la réponse a changé. On la donne en clair pour pouvoir la lire
+                // sans avoir à rejouer l'appel dans l'onglet Network.
+                console.warn("Animex Toolkit: aucune adresse dans la réponse commission. Structure reçue :", json);
+            }
         } else {
             console.warn("Animex Toolkit: réponse commission inattendue", rep.status, contentType);
         }
