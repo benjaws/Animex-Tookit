@@ -32,6 +32,9 @@ console.log("Animex Toolkit : V29 (Status Counters) Chargée.");
 let urlPrecedente = '';
 let currentUserFullName = "[Utilisateur]"; 
 let currentCommissionEmails = [];
+// Membres complets (prénom, nom, rôle) et pas seulement leurs adresses : le
+// cahier de suivi note les commissaires par leur prénom.
+let currentCommissionMembers = [];
 let extensionActivee = false;
 
 let configColonnes = {
@@ -312,26 +315,40 @@ function trouverMembresCommission(donnees, profondeur = 0) {
  * Adresses des membres, dédoublonnées. Un membre peut porter son email sur la
  * personne ou à plat selon les endpoints ; les deux sont acceptés.
  */
-function collecterEmails(donnees) {
+function collecterMembres(donnees) {
     const membres = trouverMembresCommission(donnees);
     if (!membres) return [];
 
-    const emails = [];
+    const retenus = [];
     const vus = new Set();
     const FORME_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
     membres.forEach(membre => {
-        const brut = membre?.person?.email || membre?.person?.emailAddress
+        const personne = membre?.person || {};
+        const brut = personne.email || personne.emailAddress
             || membre?.email || membre?.emailAddress || '';
         const email = String(brut).trim();
         if (!FORME_EMAIL.test(email) || vus.has(email.toLowerCase())) return;
         vus.add(email.toLowerCase());
-        emails.push(email);
+
+        // Le prénom vient de l'API et non du texte de l'avis : c'est sous cette
+        // forme que le cahier de suivi désigne les commissaires. Repli sur le
+        // premier mot du nom complet quand firstName n'est pas renseigné.
+        const prenom = (personne.firstName || '').trim()
+            || String(personne.fullName || '').trim().split(/\s+/)[0]
+            || '';
+
+        retenus.push({
+            email,
+            prenom,
+            nomComplet: (personne.fullName || `${personne.firstName || ''} ${personne.lastName || ''}`).trim() || email,
+            role: membre?.roleAbbreviation || membre?.role || '',
+        });
         // Le rôle est journalisé pour repérer d'un coup d'oeil un destinataire
         // qui n'aurait rien à faire dans la liste.
-        console.log(`Animex Toolkit: membre ${membre?.person?.fullName || email} (${membre?.roleAbbreviation || membre?.role || 'rôle inconnu'})`);
+        console.log(`Animex Toolkit: membre ${retenus[retenus.length - 1].nomComplet} (${retenus[retenus.length - 1].role || 'rôle inconnu'})`);
     });
-    return emails;
+    return retenus;
 }
 
 async function chargerEmailsCommission() {
@@ -343,7 +360,8 @@ async function chargerEmailsCommission() {
         const contentType = rep.headers.get("content-type");
         if (rep.ok && contentType && contentType.includes("application/json")) {
             const json = await rep.json();
-            currentCommissionEmails = collecterEmails(json);
+            currentCommissionMembers = collecterMembres(json);
+            currentCommissionEmails = currentCommissionMembers.map(m => m.email);
             console.log(`Animex Toolkit: ${currentCommissionEmails.length} destinataire(s) de commission chargé(s).`, currentCommissionEmails);
             if (currentCommissionEmails.length === 0) {
                 // Aucun email trouvé alors que la requête a abouti : la forme de
@@ -382,12 +400,23 @@ function dateDuJourCH() {
  * collée dans Excel, chaque champ tombe dans sa propre colonne.
  */
 function construireLigneSuivi(corpsDuMessage) {
-    const { commissaire1, commissaire2 } = extraireCommissaires(corpsDuMessage);
+    // Prénoms tels que l'API les donne — c'est ainsi que le cahier de suivi
+    // désigne les commissaires, jamais par leur adresse. Le texte de l'avis
+    // sert de repli : lui seul renseigne les commissaires quand le template
+    // « Commissaire 1 : … » a été rempli à la main.
+    const duTexte = extraireCommissaires(corpsDuMessage);
+    const prenoms = currentCommissionMembers.map(m => m.prenom).filter(Boolean);
+
+    const commissaire1 = prenoms[0] || duTexte.commissaire1;
+    const commissaire2 = prenoms[1] || duTexte.commissaire2;
+    // Au-delà de deux membres, les suivants sont accolés au second plutôt que
+    // perdus : une colonne de trop vaut mieux qu'un commissaire absent du suivi.
+    const reste = prenoms.slice(2);
+
     return [
         commissaire1,
-        commissaire2,
+        reste.length ? [commissaire2, ...reste].join(', ') : commissaire2,
         dateDuJourCH(),
-        currentCommissionEmails.join('; '),
     ].join('\t');
 }
 
