@@ -484,34 +484,53 @@ function extraireCommissaires(texte) {
     return { commissaire1: lire(1), commissaire2: lire(2) };
 }
 
-/** Date du jour au format suisse, tel qu'attendu dans le cahier de suivi. */
+/**
+ * Date du jour en JJ/MM/AAAA, séparateurs du cahier de suivi. Construite à la
+ * main plutôt que par toLocaleDateString, qui produit des points en fr-CH.
+ */
 function dateDuJourCH() {
-    return new Date().toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const d = new Date();
+    const jj = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${jj}/${mm}/${d.getFullYear()}`;
 }
 
 /**
  * Ligne prête à coller dans le cahier de suivi. Séparée par des tabulations :
  * collée dans Excel, chaque champ tombe dans sa propre colonne.
  */
-function construireLigneSuivi(corpsDuMessage) {
-    // Prénoms tels que l'API les donne — c'est ainsi que le cahier de suivi
-    // désigne les commissaires, jamais par leur adresse. Le texte de l'avis
-    // sert de repli : lui seul renseigne les commissaires quand le template
-    // « Commissaire 1 : … » a été rempli à la main.
-    const duTexte = extraireCommissaires(corpsDuMessage);
+/**
+ * Les deux commissaires à reporter, selon le nombre de membres saisis.
+ *
+ * Un seul membre : la demande part en procédure simplifiée, cette personne est
+ * le commissaire et son prénom suffit.
+ *
+ * Plusieurs membres : la liste est celle de la commission entière, pas des deux
+ * commissaires désignés — ceux-là sont nommés dans le texte de l'avis, sur les
+ * lignes « Commissaire 1 : … ». Y prendre les prénoms de l'API reviendrait à
+ * inscrire deux personnes au hasard dans un registre officiel, donc on ne
+ * complète rien : les champs restent vides et la bannière le signale.
+ */
+function determinerCommissaires(corpsDuMessage) {
     const prenoms = currentCommissionMembers.map(m => m.prenom).filter(Boolean);
 
-    const commissaire1 = prenoms[0] || duTexte.commissaire1;
-    const commissaire2 = prenoms[1] || duTexte.commissaire2;
-    // Au-delà de deux membres, les suivants sont accolés au second plutôt que
-    // perdus : une colonne de trop vaut mieux qu'un commissaire absent du suivi.
-    const reste = prenoms.slice(2);
+    if (prenoms.length === 1) {
+        return { commissaire1: prenoms[0], commissaire2: '', simplifiee: true, incomplet: false };
+    }
 
-    return [
-        commissaire1,
-        reste.length ? [commissaire2, ...reste].join(', ') : commissaire2,
-        dateDuJourCH(),
-    ].join('\t');
+    const duTexte = extraireCommissaires(corpsDuMessage);
+    return {
+        commissaire1: duTexte.commissaire1,
+        commissaire2: duTexte.commissaire2,
+        simplifiee: false,
+        incomplet: prenoms.length > 1 && !duTexte.commissaire1 && !duTexte.commissaire2,
+    };
+}
+
+/** Colonnes du cahier de suivi : date, puis les deux commissaires. */
+function construireLigneSuivi(corpsDuMessage) {
+    const { commissaire1, commissaire2 } = determinerCommissaires(corpsDuMessage);
+    return [dateDuJourCH(), commissaire1, commissaire2].join('\t');
 }
 
 /**
@@ -548,7 +567,7 @@ async function copierDansPressePapier(texte) {
  * ce qui a été copié, et permet de recopier si le presse-papier a été écrasé
  * entre-temps.
  */
-function afficherRappelSuivi(ligne, copieOk) {
+function afficherRappelSuivi(ligne, copieOk, etatCommissaires) {
     document.getElementById('animex-suivi-banner')?.remove();
 
     const banner = document.createElement('div');
@@ -569,6 +588,14 @@ function afficherRappelSuivi(ligne, copieOk) {
         ? 'Les infos sont dans le presse-papier — colle-les dans Excel (Ctrl+V).'
         : 'Copie automatique refusée par le navigateur : utilise le bouton ci-dessous.';
     etat.style.cssText = 'margin-bottom:8px;';
+
+    let avertissement = null;
+    if (etatCommissaires && etatCommissaires.incomplet) {
+        const avert = document.createElement('div');
+        avert.textContent = "⚠️ Plusieurs membres dans la commission, mais aucun « Commissaire 1 : … » dans ton avis : les deux colonnes sont vides, à compléter à la main.";
+        avert.style.cssText = 'background:#ffebee;border:1px solid #ffcdd2;border-radius:4px;padding:8px;margin-bottom:8px;color:#c62828;';
+        avertissement = avert;
+    }
 
     const apercu = document.createElement('pre');
     apercu.textContent = ligne.split('\t').join('  |  ');
@@ -592,7 +619,7 @@ function afficherRappelSuivi(ligne, copieOk) {
     btnFermer.onclick = () => banner.remove();
 
     actions.append(btnCopier, btnFermer);
-    banner.append(titre, etat, apercu, actions);
+    banner.append(titre, etat, ...(avertissement ? [avertissement] : []), apercu, actions);
     document.body.appendChild(banner);
 }
 
@@ -620,6 +647,7 @@ async function ouvrirOutlook(corpsDuMessage) {
     // Le presse-papier est rempli AVANT d'ouvrir le client mail : après, la page
     // a perdu le focus et le navigateur refuse l'écriture.
     const ligneSuivi = construireLigneSuivi(corpsDuMessage);
+    const etatCommissaires = determinerCommissaires(corpsDuMessage);
     const copieOk = await copierDansPressePapier(ligneSuivi);
 
     let corpsEnvoye = corpsDuMessage || '';
@@ -640,7 +668,7 @@ async function ouvrirOutlook(corpsDuMessage) {
     lien.click();
     lien.remove();
 
-    afficherRappelSuivi(ligneSuivi, copieOk);
+    afficherRappelSuivi(ligneSuivi, copieOk, etatCommissaires);
 }
 
 function marquerMiceGM_V13() {
