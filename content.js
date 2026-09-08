@@ -364,10 +364,30 @@ function collecterMembres(donnees) {
  * plutôt que d'échouer : un objet de mail ne vaut pas d'empêcher un envoi.
  */
 async function chargerReferenceDossier(applicationId) {
-    const tousLesUuid = (window.location.href.match(
-        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
-    ) || []);
-    const candidats = tousLesUuid.filter(u => u.toLowerCase() !== String(applicationId).toLowerCase());
+    const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+    const candidats = [];
+    const ajouter = (uuid) => {
+        if (!uuid) return;
+        if (uuid.toLowerCase() === String(applicationId).toLowerCase()) return;
+        if (!candidats.some(c => c.toLowerCase() === uuid.toLowerCase())) candidats.push(uuid);
+    };
+
+    // Source la plus sûre : l'application a elle-même appelé cet endpoint pour
+    // afficher l'écran, et le navigateur garde la trace de ses requêtes. On lit
+    // donc l'identifiant qu'elle a utilisé au lieu d'essayer de le deviner.
+    try {
+        performance.getEntriesByType('resource')
+            .map(e => e.name)
+            .filter(nom => nom.includes(API_DOSSIER_PREFIX))
+            .forEach(nom => {
+                const apres = nom.split(API_DOSSIER_PREFIX)[1] || '';
+                const trouve = apres.match(UUID);
+                if (trouve) ajouter(trouve[0]);
+            });
+    } catch (err) { console.warn('Animex Toolkit: historique réseau illisible', err); }
+
+    // À défaut, les écrans de dossier portent l'identifiant dans leur URL.
+    (window.location.href.match(UUID) || []).forEach(ajouter);
 
     if (candidats.length === 0) {
         // Pas de dossierId sous la main : la demande le référence.
@@ -401,7 +421,8 @@ async function chargerReferenceDossier(applicationId) {
         } catch (err) { console.warn('Animex Toolkit: lecture dossier échouée', err); }
     }
 
-    console.warn("Animex Toolkit: référence de dossier introuvable, objet de mail par défaut.");
+    console.warn("Animex Toolkit: référence de dossier introuvable, objet de mail par défaut.",
+        { applicationId, candidatsEssayes: candidats, url: window.location.href });
     return '';
 }
 
