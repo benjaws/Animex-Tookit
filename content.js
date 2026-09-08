@@ -7,6 +7,7 @@ const API_REMARKS_BASE = '/api/v1/remarks';
 const API_USER = '/api/v1/persons/current-user';
 const API_COMMISSION = '/api/v1/commission';
 const API_TASK_SEARCH = '/api/v1/task/search';
+const API_DOSSIER_PREFIX = '/api/v1/animal-experiments/dossier/';
 
 const SELECTEUR_TITRE = 'h1.type';
 const SELECTEUR_TOOLBAR_TASKS = '.ToolbarContainer .btn-toolbar.pull-right';
@@ -35,6 +36,8 @@ let currentCommissionEmails = [];
 // Membres complets (prénom, nom, rôle) et pas seulement leurs adresses : le
 // cahier de suivi note les commissaires par leur prénom.
 let currentCommissionMembers = [];
+// Référence du dossier ("SC 36751 - VD4006b") utilisée comme objet du mail.
+let currentDossierRef = '';
 let extensionActivee = false;
 
 let configColonnes = {
@@ -351,6 +354,75 @@ function collecterMembres(donnees) {
     return retenus;
 }
 
+/**
+ * Référence du dossier, telle que la commission la cite : « SC 36751 - VD4006b ».
+ *
+ * Elle vit dans /animal-experiments/dossier/{dossierId}?applicationId={id}, qui
+ * réclame un dossierId absent de l'identifiant déjà connu. Il est cherché dans
+ * l'URL — les écrans du dossier le portent — puis, à défaut, dans la demande
+ * elle-même, dont la réponse référence son dossier. Renvoie une chaîne vide
+ * plutôt que d'échouer : un objet de mail ne vaut pas d'empêcher un envoi.
+ */
+async function chargerReferenceDossier(applicationId) {
+    const tousLesUuid = (window.location.href.match(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+    ) || []);
+    const candidats = tousLesUuid.filter(u => u.toLowerCase() !== String(applicationId).toLowerCase());
+
+    if (candidats.length === 0) {
+        // Pas de dossierId sous la main : la demande le référence.
+        try {
+            const repApp = await fetch(`${BASE_URL}${API_FORM_A_PREFIX}${applicationId}`);
+            if (repApp.ok && (repApp.headers.get('content-type') || '').includes('application/json')) {
+                const jsonApp = await repApp.json();
+                const trouve = chercherIdDeDossier(jsonApp);
+                if (trouve) candidats.push(trouve);
+            }
+        } catch (err) { console.warn('Animex Toolkit: dossier introuvable via la demande', err); }
+    }
+
+    for (const dossierId of candidats) {
+        try {
+            const url = `${BASE_URL}${API_DOSSIER_PREFIX}${dossierId}?applicationId=${applicationId}`;
+            const rep = await fetch(url);
+            if (!rep.ok || !(rep.headers.get('content-type') || '').includes('application/json')) continue;
+            const json = await rep.json();
+            // La réponse est une liste d'expériences ; toutes partagent la même
+            // référence de dossier, la première suffit.
+            const premier = Array.isArray(json) ? json[0] : json;
+            if (!premier) continue;
+            const numero = String(premier.id || '').trim();
+            const cantonal = String(premier.cantonalId || '').trim();
+            const ref = [numero, cantonal].filter(Boolean).join(' - ');
+            if (ref) {
+                console.log(`Animex Toolkit: référence dossier « ${ref} »`);
+                return ref;
+            }
+        } catch (err) { console.warn('Animex Toolkit: lecture dossier échouée', err); }
+    }
+
+    console.warn("Animex Toolkit: référence de dossier introuvable, objet de mail par défaut.");
+    return '';
+}
+
+/** Premier identifiant rattaché à un dossier dans une réponse d'API. */
+function chercherIdDeDossier(noeud, profondeur = 0) {
+    if (!noeud || typeof noeud !== 'object' || profondeur > 6) return null;
+    for (const [cle, valeur] of Object.entries(noeud)) {
+        if (/dossier/i.test(cle)) {
+            if (typeof valeur === 'string' && valeur) return valeur;
+            if (valeur && typeof valeur === 'object' && typeof valeur.id === 'string') return valeur.id;
+        }
+    }
+    for (const valeur of Object.values(noeud)) {
+        if (valeur && typeof valeur === 'object') {
+            const trouve = chercherIdDeDossier(valeur, profondeur + 1);
+            if (trouve) return trouve;
+        }
+    }
+    return null;
+}
+
 async function chargerEmailsCommission() {
     try {
         const applicationId = extraireIdDeLUrl();
@@ -363,6 +435,7 @@ async function chargerEmailsCommission() {
             currentCommissionMembers = collecterMembres(json);
             currentCommissionEmails = currentCommissionMembers.map(m => m.email);
             console.log(`Animex Toolkit: ${currentCommissionEmails.length} destinataire(s) de commission chargé(s).`, currentCommissionEmails);
+            currentDossierRef = await chargerReferenceDossier(applicationId);
             if (currentCommissionEmails.length === 0) {
                 // Aucun email trouvé alors que la requête a abouti : la forme de
                 // la réponse a changé. On la donne en clair pour pouvoir la lire
@@ -519,7 +592,9 @@ async function ouvrirOutlook(corpsDuMessage) {
     }
 
     const destinataires = currentCommissionEmails.join(';');
-    const sujet = "Commission - Demande d'avis";
+    // La commission identifie un dossier par sa référence ; l'ancien objet fixe
+    // obligeait à la retrouver à la main dans chaque fil de discussion.
+    const sujet = currentDossierRef || "Commission - Demande d'avis";
 
     // Le presse-papier est rempli AVANT d'ouvrir le client mail : après, la page
     // a perdu le focus et le navigateur refuse l'écriture.
