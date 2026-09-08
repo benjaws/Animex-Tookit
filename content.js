@@ -251,6 +251,8 @@ function verifierPopupCommission() {
         });
     }
 
+    poserSelecteursCommissaires(textarea);
+
     const btnInvite = document.querySelector('button[aria-label="Send Invite To All"]');
     if (btnInvite && !document.getElementById('animex-email-btn')) {
         const btnEmail = document.createElement('button');
@@ -443,6 +445,75 @@ function chercherIdDeDossier(noeud, profondeur = 0) {
         }
     }
     return null;
+}
+
+/**
+ * Écrit « Commissaire N : Prénom Nom » dans l'avis, en remplaçant la ligne si
+ * elle existe déjà. Le champ est piloté par Angular : la valeur seule ne suffit
+ * pas, il faut lui signaler la saisie comme le ferait une frappe au clavier.
+ */
+function ecrireCommissaireDansTexte(textarea, rang, libelle) {
+    const ligne = `Commissaire ${rang} : ${libelle}`;
+    const motif = new RegExp(`^.*commissaire\\s*${rang}\\s*:?.*$`, 'im');
+
+    if (motif.test(textarea.value)) {
+        textarea.value = textarea.value.replace(motif, ligne);
+    } else {
+        // Pas de ligne à remplacer : on l'ajoute sans écraser ce qui est écrit.
+        const separateur = textarea.value && !textarea.value.endsWith('\n') ? '\n' : '';
+        textarea.value = `${textarea.value}${separateur}${ligne}\n`;
+    }
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/**
+ * Deux listes déroulantes des membres, posées au-dessus de l'avis.
+ *
+ * Choisir dans la liste plutôt que taper « M Perréaz » fait écrire au texte la
+ * forme exacte que porte Animex : le cahier de suivi reçoit alors le prénom
+ * attendu sans qu'aucun rapprochement approximatif n'ait à deviner de qui il
+ * s'agit. La frappe libre reste possible, ces menus ne font qu'écrire à la
+ * place de l'utilisateur.
+ *
+ * Rien n'est affiché tant qu'il y a moins de deux membres : une commission
+ * réduite à une personne est une procédure simplifiée, où les commissaires ne
+ * se désignent pas.
+ */
+function poserSelecteursCommissaires(textarea) {
+    const existant = document.getElementById('animex-commissaires');
+    if (currentCommissionMembers.length < 2) { existant?.remove(); return; }
+    // Reconstruit si la liste a changé de demande entre-temps.
+    const signature = currentCommissionMembers.map(m => m.email).join('|');
+    if (existant && existant.dataset.signature === signature) return;
+    existant?.remove();
+
+    const bloc = document.createElement('div');
+    bloc.id = 'animex-commissaires';
+    bloc.dataset.signature = signature;
+    bloc.style.cssText = 'display:flex;gap:10px;margin:8px 0;font-family:system-ui,sans-serif;font-size:13px;';
+
+    [1, 2].forEach(rang => {
+        const champ = document.createElement('label');
+        champ.style.cssText = 'flex:1;display:flex;flex-direction:column;gap:3px;color:#555;';
+        champ.textContent = `Commissaire ${rang}`;
+
+        const select = document.createElement('select');
+        select.style.cssText = 'padding:5px;border:1px solid #ccc;border-radius:4px;background:#fff;';
+        select.appendChild(new Option('— choisir —', ''));
+        currentCommissionMembers.forEach(m => {
+            const libelle = `${m.prenom} ${m.nomFamille}`.trim() || m.nomComplet;
+            select.appendChild(new Option(libelle, libelle));
+        });
+        select.onchange = () => {
+            if (select.value) ecrireCommissaireDansTexte(textarea, rang, select.value);
+        };
+
+        champ.appendChild(select);
+        bloc.appendChild(champ);
+    });
+
+    textarea.parentNode.insertBefore(bloc, textarea);
 }
 
 async function chargerEmailsCommission() {
