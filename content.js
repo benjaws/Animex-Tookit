@@ -40,6 +40,40 @@ let currentCommissionMembers = [];
 let currentDossierRef = '';
 let extensionActivee = false;
 
+// ============================================================
+// DISJONCTEUR RÉSEAU
+// ============================================================
+// Cette extension interroge un portail fédéral. Une boucle de requêtes y est
+// vue comme un abus et fait bannir l'utilisateur — c'est arrivé. Aucun appel
+// ne part donc plus sans passer par ce compteur : au-delà du plafond, tout le
+// réseau de l'extension est coupé pour la session, et seul un rechargement de
+// page peut le rouvrir. Mieux vaut une fonctionnalité muette qu'un accès perdu.
+const REQ_MAX_PAR_MINUTE = 20;
+const REQ_MAX_SESSION = 200;
+let _reqFenetre = [];
+let _reqTotalSession = 0;
+let _reseauCoupe = false;
+
+function reseauAutorise(motif) {
+    if (_reseauCoupe) return false;
+    const maintenant = Date.now();
+    _reqFenetre = _reqFenetre.filter(t => maintenant - t < 60000);
+    if (_reqFenetre.length >= REQ_MAX_PAR_MINUTE || _reqTotalSession >= REQ_MAX_SESSION) {
+        _reseauCoupe = true;
+        console.error(`Animex Toolkit: TROP DE REQUÊTES (${motif}). Réseau de l'extension coupé pour cette page — rechargez pour le réactiver.`);
+        return false;
+    }
+    _reqFenetre.push(maintenant);
+    _reqTotalSession++;
+    return true;
+}
+
+/** Unique porte de sortie réseau de l'extension. */
+async function fetchAnimex(url, options, motif) {
+    if (!reseauAutorise(motif || url)) throw new Error('Animex Toolkit: réseau coupé (garde anti-boucle)');
+    return fetch(url, options);
+}
+
 let configColonnes = {
     hideTargetDate: true,
     hideType: true
@@ -89,7 +123,7 @@ async function demarrerExtension() {
     chargerPreferences();
 
     try {
-        const rep = await fetch(`${BASE_URL}${API_USER}`);
+        const rep = await fetchAnimex(`${BASE_URL}${API_USER}`);
         const contentType = rep.headers.get("content-type");
         
         if (rep.ok && contentType && contentType.includes("application/json")) {
@@ -225,11 +259,7 @@ function chargerPreferences() {
 
 function verifierPopupCommission() {
     const textarea = document.getElementById('cantonRemarks');
-    if (!textarea) {
-        // Popup fermé : on réarme pour la prochaine demande consultée.
-        _emailsChargesPourUrl = '';
-        return;
-    }
+    if (!textarea) return;
 
     // Les destinataires étaient chargés uniquement dans la branche
     // d'auto-remplissage ci-dessous, qui ne s'exécute que sur un textarea vide.
@@ -237,8 +267,12 @@ function verifierPopupCommission() {
     // liste vide et le bouton SEND EMAIL ne savait à qui écrire — il affichait
     // « Chargement des emails en cours… » sans jamais aboutir. Le chargement
     // appartient à l'ouverture du popup, pas au remplissage du texte.
-    if (_emailsChargesPourUrl !== window.location.href) {
-        _emailsChargesPourUrl = window.location.href;
+    // Une fois par demande, et non à chaque réapparition du champ : l'état était
+    // réarmé dès que le textarea quittait le DOM, si bien qu'un simple redessin
+    // d'Angular relançait toute la série de requêtes.
+    const idDemande = extraireIdDeLUrl();
+    if (idDemande && _emailsChargesPourUrl !== idDemande) {
+        _emailsChargesPourUrl = idDemande;
         chargerEmailsCommission();
     }
 
@@ -369,7 +403,15 @@ function collecterMembres(donnees) {
  * elle-même, dont la réponse référence son dossier. Renvoie une chaîne vide
  * plutôt que d'échouer : un objet de mail ne vaut pas d'empêcher un envoi.
  */
+// Références déjà résolues, par demande — les échecs compris, mémorisés sous
+// forme de chaîne vide. Sans ce cache, chaque ouverture du popup relançait la
+// série complète de requêtes, y compris celles vouées à échouer.
+const _refDossierParDemande = new Map();
+
 async function chargerReferenceDossier(applicationId) {
+    const cle = String(applicationId).toLowerCase();
+    if (_refDossierParDemande.has(cle)) return _refDossierParDemande.get(cle);
+
     const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
     const candidats = [];
     const ajouter = (uuid) => {
@@ -378,13 +420,18 @@ async function chargerReferenceDossier(applicationId) {
         if (!candidats.some(c => c.toLowerCase() === uuid.toLowerCase())) candidats.push(uuid);
     };
 
-    // Source la plus sûre : l'application a elle-même appelé cet endpoint pour
-    // afficher l'écran, et le navigateur garde la trace de ses requêtes. On lit
-    // donc l'identifiant qu'elle a utilisé au lieu d'essayer de le deviner.
+    // L'application a elle-même appelé cet endpoint pour afficher l'écran, et le
+    // navigateur garde la trace de ses requêtes : on reprend l'identifiant
+    // qu'elle a utilisé plutôt que de le deviner.
+    //
+    // Seule est retenue la requête portant CETTE demande. Toutes les entrées
+    // correspondantes étaient auparavant collectées, y compris celles des
+    // dossiers consultés plus tôt : la boucle plus bas lançait alors autant de
+    // requêtes que de dossiers vus, à chaque appel et sans rien mémoriser.
     try {
         performance.getEntriesByType('resource')
             .map(e => e.name)
-            .filter(nom => nom.includes(API_DOSSIER_PREFIX))
+            .filter(nom => nom.includes(API_DOSSIER_PREFIX) && nom.includes(applicationId))
             .forEach(nom => {
                 const apres = nom.split(API_DOSSIER_PREFIX)[1] || '';
                 const trouve = apres.match(UUID);
@@ -398,7 +445,7 @@ async function chargerReferenceDossier(applicationId) {
     if (candidats.length === 0) {
         // Pas de dossierId sous la main : la demande le référence.
         try {
-            const repApp = await fetch(`${BASE_URL}${API_FORM_A_PREFIX}${applicationId}`);
+            const repApp = await fetchAnimex(`${BASE_URL}${API_FORM_A_PREFIX}${applicationId}`);
             if (repApp.ok && (repApp.headers.get('content-type') || '').includes('application/json')) {
                 const jsonApp = await repApp.json();
                 const trouve = chercherIdDeDossier(jsonApp);
@@ -407,10 +454,13 @@ async function chargerReferenceDossier(applicationId) {
         } catch (err) { console.warn('Animex Toolkit: dossier introuvable via la demande', err); }
     }
 
-    for (const dossierId of candidats) {
+    // Un seul essai : le premier candidat. Parcourir une liste d'identifiants
+    // en tentant une requête pour chacun est précisément ce qui transforme une
+    // fonctionnalité d'agrément en rafale vue comme un abus par le portail.
+    for (const dossierId of candidats.slice(0, 1)) {
         try {
             const url = `${BASE_URL}${API_DOSSIER_PREFIX}${dossierId}?applicationId=${applicationId}`;
-            const rep = await fetch(url);
+            const rep = await fetchAnimex(url);
             if (!rep.ok || !(rep.headers.get('content-type') || '').includes('application/json')) continue;
             const json = await rep.json();
             // La réponse est une liste d'expériences ; toutes partagent la même
@@ -422,11 +472,16 @@ async function chargerReferenceDossier(applicationId) {
             const ref = [numero, cantonal].filter(Boolean).join(' - ');
             if (ref) {
                 console.log(`Animex Toolkit: référence dossier « ${ref} »`);
+                _refDossierParDemande.set(cle, ref);
                 return ref;
             }
         } catch (err) { console.warn('Animex Toolkit: lecture dossier échouée', err); }
     }
 
+    // L'échec est mémorisé au même titre qu'un succès : réessayer à chaque
+    // ouverture du popup ne donnerait pas un autre résultat, seulement des
+    // requêtes supplémentaires.
+    _refDossierParDemande.set(cle, '');
     console.warn("Animex Toolkit: référence de dossier introuvable, objet de mail par défaut.",
         { applicationId, candidatsEssayes: candidats, url: window.location.href });
     return '';
@@ -524,7 +579,7 @@ async function chargerEmailsCommission() {
         const applicationId = extraireIdDeLUrl();
         if (!applicationId) { console.warn("Animex Toolkit: aucun applicationId dans l'URL"); return; }
         const url = `${BASE_URL}${API_COMMISSION}?applicationId=${applicationId}`;
-        const rep = await fetch(url);
+        const rep = await fetchAnimex(url);
         const contentType = rep.headers.get("content-type");
         if (rep.ok && contentType && contentType.includes("application/json")) {
             const json = await rep.json();
@@ -915,7 +970,7 @@ async function lancerLePimpFormA() {
     try {
         const urlParts = window.location.href.split('/');
         const applicationId = urlParts[urlParts.length - 1]; 
-        const repFormA = await fetch(`${BASE_URL}${API_FORM_A_PREFIX}${applicationId}`);
+        const repFormA = await fetchAnimex(`${BASE_URL}${API_FORM_A_PREFIX}${applicationId}`);
         const contentType = repFormA.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) return;
         const jsonFormA = await repFormA.json();
@@ -923,7 +978,7 @@ async function lancerLePimpFormA() {
         if (!dossierId && jsonFormA.dossier?.id) dossierId = jsonFormA.dossier.id;
         if (!dossierId) return;
         const urlRemarks = `${BASE_URL}${API_REMARKS_BASE}?page=0&size=100&form=FORM_A&applicationId=${applicationId}&dossierId=${dossierId}`;
-        const repRemarks = await fetch(urlRemarks);
+        const repRemarks = await fetchAnimex(urlRemarks);
         if (!repRemarks.ok) return;
         const jsonRemarks = await repRemarks.json();
         let listeBrute = [];
@@ -949,19 +1004,19 @@ async function lancerLePimpRapport() {
     try {
         const urlParts = window.location.href.split('/');
         const reportId = urlParts[urlParts.length - 1]; 
-        const repRapport = await fetch(`${BASE_URL}${API_RAPPORT_PREFIX}${reportId}`);
+        const repRapport = await fetchAnimex(`${BASE_URL}${API_RAPPORT_PREFIX}${reportId}`);
         const contentType = repRapport.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) return;
         const jsonRapport = await repRapport.json();
         const formAId = jsonRapport.applicationExperiments?.id;
         if (!formAId) return;
-        const repFormA = await fetch(`${BASE_URL}${API_FORM_A_PREFIX}${formAId}`);
+        const repFormA = await fetchAnimex(`${BASE_URL}${API_FORM_A_PREFIX}${formAId}`);
         const jsonFormA = await repFormA.json();
         if (jsonFormA.cantonalNumber) afficherBadgeVert(jsonFormA.cantonalNumber, formAId);
         let authId = formAId; 
         if (jsonFormA.latestAuthorization?.id) authId = jsonFormA.latestAuthorization.id;
         else if (jsonFormA.authorization?.id) authId = jsonFormA.authorization.id;
-        const repAuth = await fetch(`${BASE_URL}${API_AUTH_PREFIX}${authId}/summary`);
+        const repAuth = await fetchAnimex(`${BASE_URL}${API_AUTH_PREFIX}${authId}/summary`);
         if (repAuth.ok) {
             const jsonAuth = await repAuth.json();
             const provisions = jsonAuth.specialProvisions;
@@ -1069,7 +1124,7 @@ async function afficherCompteursStatuts() {
         // Accept-Language: "EN" exact (valeur observée sur une requête Angular
         // qui fonctionne réellement dans DevTools) — toute autre valeur (fr,
         // fr-CH, ou le format composé par défaut du navigateur) donne 400.
-        const rep = await fetch(url, {
+        const rep = await fetchAnimex(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1378,11 +1433,16 @@ function telechargerCertificatDuModal() {
             console.log(`Animex Toolkit: téléchargement du certificat de présence « ${libelle} »`);
 
             // Prévenir avant de cliquer : le fichier peut arriver tout de suite.
+            // Le libellé reste dans le garde même en cas d'échec. Le retirer
+            // pour « réessayer » relançait un clic de téléchargement à chaque
+            // tour de boucle, soit plus d'un par seconde sans fin : c'est ce
+            // qui a fait bannir l'utilisateur du portail. Un certificat non
+            // enregistré se retélécharge à la main ; une adresse IP bloquée,
+            // non.
             chrome.runtime.sendMessage({ type: 'attendre-certificat' }, () => {
                 if (chrome.runtime.lastError) {
-                    console.error('Animex Toolkit: service worker injoignable',
+                    console.error('Animex Toolkit: service worker injoignable, téléchargement abandonné (pas de nouvel essai automatique)',
                         chrome.runtime.lastError.message);
-                    _certificatsTelecharges.delete(libelle); // réessayable
                     return;
                 }
                 lien.click();
