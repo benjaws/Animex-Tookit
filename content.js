@@ -137,6 +137,7 @@ function lancerBouclePrincipale() {
         copierJoursDemandes();
         copierDateVersInput();
         telechargerCertificatDuModal();
+        gererBadgeARetourner();
 
     }, 800); 
 }
@@ -1165,6 +1166,122 @@ function creerEtOuvrirPopup(titreHeader, contenuHtml) {
 // Certificats déjà déclenchés, par libellé de ligne : le modal est réinspecté
 // toutes les 800 ms et rouvert plusieurs fois par session.
 const _certificatsTelecharges = new Set();
+
+// ============================================================
+// MARQUE « À RETOURNER »
+// ============================================================
+
+// Marque posée à la main sur une demande, pour se rappeler qu'elle doit repartir
+// en réécriture. Purement personnelle : elle vit dans le stockage local du
+// navigateur, n'est jamais envoyée à Animex, et ne suit pas l'utilisateur d'un
+// poste à l'autre — d'où storage.local et non storage.sync.
+const CLE_A_RETOURNER = 'animex_a_retourner';
+
+// État de la demande affichée, tenu en mémoire : la boucle repasse toutes les
+// 800 ms et interroger le stockage à chaque tour pour redessiner un badge
+// inchangé n'aurait aucun sens.
+let _aRetourner = { id: '', marque: false, charge: false };
+
+function lireMarquesARetourner() {
+    return new Promise(resolve => {
+        if (!chrome.storage?.local) { resolve({}); return; }
+        chrome.storage.local.get({ [CLE_A_RETOURNER]: {} }, items => {
+            resolve(items[CLE_A_RETOURNER] || {});
+        });
+    });
+}
+
+async function ecrireMarqueARetourner(id, marque) {
+    const marques = await lireMarquesARetourner();
+    if (marque) marques[id] = Date.now();
+    else delete marques[id];
+    chrome.storage.local.set({ [CLE_A_RETOURNER]: marques });
+}
+
+/**
+ * Pose, affiche et retire la marque « à retourner » sous le titre Authorization.
+ *
+ * Le badge n'apparaît jamais de lui-même : c'est un repère que l'utilisateur
+ * pose sciemment sur une demande, et qui doit survivre à la fermeture du
+ * navigateur puisqu'il sert précisément à ne pas oublier d'y revenir.
+ *
+ * Il s'efface au clic sur « Return for rewrite », la demande étant alors
+ * réellement retournée : la garder marquée ferait mentir le repère dès le
+ * lendemain.
+ */
+function gererBadgeARetourner() {
+    const titre = [...document.querySelectorAll('p, h2, h3, h4, h5')]
+        .find(el => el.children.length === 0
+            && (el.textContent || '').trim().toLowerCase() === 'authorization');
+    if (!titre) { _aRetourner = { id: '', marque: false, charge: false }; return; }
+
+    const id = extraireIdDeLUrl();
+    if (!id) return;
+
+    // Changement de demande : on relit le stockage avant de dessiner quoi que ce soit.
+    if (_aRetourner.id !== id) {
+        _aRetourner = { id, marque: false, charge: false };
+        lireMarquesARetourner().then(marques => {
+            if (_aRetourner.id !== id) return; // l'utilisateur a navigué entre-temps
+            _aRetourner = { id, marque: Boolean(marques[id]), charge: true };
+            document.getElementById('animex-retour-zone')?.remove();
+        });
+        return;
+    }
+    if (!_aRetourner.charge) return;
+
+    brancherBoutonRetour(id);
+
+    const existant = document.getElementById('animex-retour-zone');
+    if (existant && existant.dataset.marque === String(_aRetourner.marque)) return;
+    existant?.remove();
+
+    const zone = document.createElement('div');
+    zone.id = 'animex-retour-zone';
+    zone.dataset.marque = String(_aRetourner.marque);
+    zone.style.cssText = 'margin: 4px 0 10px; font-family: system-ui, sans-serif;';
+
+    const bouton = document.createElement('button');
+    bouton.type = 'button';
+    if (_aRetourner.marque) {
+        bouton.textContent = '⚠️ À RETOURNER';
+        bouton.title = 'Cliquer pour retirer la marque';
+        bouton.style.cssText = 'background:#ffebee;color:#c62828;border:1px solid #ffcdd2;border-radius:4px;padding:3px 10px;font-weight:bold;font-size:0.85em;cursor:pointer;';
+    } else {
+        bouton.textContent = '+ marquer à retourner';
+        bouton.title = 'Repère personnel, visible seulement sur ce poste';
+        bouton.style.cssText = 'background:transparent;color:#9e9e9e;border:1px dashed #cfcfcf;border-radius:4px;padding:3px 10px;font-size:0.8em;cursor:pointer;';
+    }
+    bouton.onclick = async (e) => {
+        e.preventDefault();
+        const nouvelle = !_aRetourner.marque;
+        _aRetourner.marque = nouvelle;
+        await ecrireMarqueARetourner(id, nouvelle);
+        gererBadgeARetourner();
+    };
+
+    zone.appendChild(bouton);
+    titre.parentNode.insertBefore(zone, titre.nextSibling);
+}
+
+/**
+ * Efface la marque quand la demande part effectivement en réécriture.
+ * Le bouton d'Animex n'a ni identifiant ni libellé stable : il est reconnu par
+ * son texte, et le branchement est marqué pour ne pas s'empiler à chaque tour
+ * de boucle.
+ */
+function brancherBoutonRetour(id) {
+    const bouton = [...document.querySelectorAll('button')]
+        .find(b => (b.textContent || '').trim().toLowerCase() === 'return for rewrite');
+    if (!bouton || bouton.dataset.animexBranche) return;
+
+    bouton.dataset.animexBranche = 'true';
+    bouton.addEventListener('click', () => {
+        _aRetourner.marque = false;
+        ecrireMarqueARetourner(id, false);
+        document.getElementById('animex-retour-zone')?.remove();
+    });
+}
 
 /**
  * Tableau des documents de présence, et lui seul.
