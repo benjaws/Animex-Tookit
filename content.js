@@ -1199,7 +1199,12 @@ async function ecrireMarqueARetourner(id, marque) {
 }
 
 /**
- * Pose, affiche et retire la marque « à retourner » sous le titre Authorization.
+ * Pose, affiche et retire la marque « à retourner », en tête du panneau latéral.
+ *
+ * Elle était d'abord accrochée au titre « Authorization », qui manque sur une
+ * partie des dossiers : le repère disparaissait alors sans prévenir, là où on
+ * l'attendait le plus. Le panneau latéral, lui, accompagne toute la demande et
+ * son conteneur porte un identifiant stable.
  *
  * Le badge n'apparaît jamais de lui-même : c'est un repère que l'utilisateur
  * pose sciemment sur une demande, et qui doit survivre à la fermeture du
@@ -1210,10 +1215,9 @@ async function ecrireMarqueARetourner(id, marque) {
  * lendemain.
  */
 function gererBadgeARetourner() {
-    const titre = [...document.querySelectorAll('p, h2, h3, h4, h5')]
-        .find(el => el.children.length === 0
-            && (el.textContent || '').trim().toLowerCase() === 'authorization');
-    if (!titre) { _aRetourner = { id: '', marque: false, charge: false }; return; }
+    const panneau = document.querySelector('#stickyHeaderIndication .applicationMenu')
+        || document.querySelector('#stickyHeaderIndication');
+    if (!panneau) { _aRetourner = { id: '', marque: false, charge: false }; return; }
 
     const id = extraireIdDeLUrl();
     if (!id) return;
@@ -1233,35 +1237,49 @@ function gererBadgeARetourner() {
     brancherBoutonRetour(id);
 
     const existant = document.getElementById('animex-retour-zone');
-    if (existant && existant.dataset.marque === String(_aRetourner.marque)) return;
+    if (existant && existant.dataset.marque === String(_aRetourner.marque)
+        && existant.parentNode === panneau) return;
     existant?.remove();
 
-    const zone = document.createElement('div');
-    zone.id = 'animex-retour-zone';
-    zone.dataset.marque = String(_aRetourner.marque);
-    zone.style.cssText = 'margin: 4px 0 10px; font-family: system-ui, sans-serif;';
+    // Même gabarit que les entrées natives du panneau, pour ne pas donner
+    // l'impression d'un élément greffé ; seule la couleur le distingue.
+    const carte = document.createElement('div');
+    carte.id = 'animex-retour-zone';
+    carte.dataset.marque = String(_aRetourner.marque);
+    carte.className = 'mimix-sidebar-card';
+    carte.setAttribute('role', 'button');
+    carte.setAttribute('tabindex', '0');
 
-    const bouton = document.createElement('button');
-    bouton.type = 'button';
+    const icone = document.createElement('em');
+    icone.setAttribute('aria-hidden', 'true');
+    const libelle = document.createElement('p');
+    libelle.style.margin = '0';
+
     if (_aRetourner.marque) {
-        bouton.textContent = '⚠️ À RETOURNER';
-        bouton.title = 'Cliquer pour retirer la marque';
-        bouton.style.cssText = 'background:#ffebee;color:#c62828;border:1px solid #ffcdd2;border-radius:4px;padding:3px 10px;font-weight:bold;font-size:0.85em;cursor:pointer;';
+        carte.style.cssText = 'background:#ffebee;border-left:4px solid #c62828;color:#c62828;font-weight:bold;cursor:pointer;';
+        icone.className = 'fas fa-undo';
+        libelle.textContent = 'À RETOURNER';
+        carte.title = 'Repère personnel — cliquer pour le retirer';
     } else {
-        bouton.textContent = '+ marquer à retourner';
-        bouton.title = 'Repère personnel, visible seulement sur ce poste';
-        bouton.style.cssText = 'background:transparent;color:#9e9e9e;border:1px dashed #cfcfcf;border-radius:4px;padding:3px 10px;font-size:0.8em;cursor:pointer;';
+        carte.style.cssText = 'border:1px dashed #cfcfcf;color:#9e9e9e;cursor:pointer;';
+        icone.className = 'fas fa-undo';
+        libelle.textContent = 'Marquer à retourner';
+        carte.title = 'Repère personnel, visible seulement sur ce poste';
     }
-    bouton.onclick = async (e) => {
-        e.preventDefault();
+
+    const basculer = async () => {
         const nouvelle = !_aRetourner.marque;
         _aRetourner.marque = nouvelle;
         await ecrireMarqueARetourner(id, nouvelle);
         gererBadgeARetourner();
     };
+    carte.onclick = (e) => { e.preventDefault(); basculer(); };
+    carte.onkeydown = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); basculer(); }
+    };
 
-    zone.appendChild(bouton);
-    titre.parentNode.insertBefore(zone, titre.nextSibling);
+    carte.append(icone, libelle);
+    panneau.insertBefore(carte, panneau.firstChild);
 }
 
 /**
