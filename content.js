@@ -82,6 +82,21 @@ let autoCopyEnabled = true;
 // URL pour laquelle les destinataires de commission ont déjà été demandés :
 // évite de rappeler l'API à chaque tick du MutationObserver.
 let _emailsChargesPourUrl = '';
+let _chargementMembresEnCours = false;
+// Commissaires saisis dans les options : les menus en ont besoin avant que le
+// portail connaisse les membres de la demande (avant leur validation).
+let commissairesEnregistres = [];
+function lireCommissairesEnregistres() {
+    if (!chrome.storage?.sync) return;
+    chrome.storage.sync.get({ commissairesListe: '' }, (items) => {
+        commissairesEnregistres = String(items.commissairesListe || '')
+            .split('\n').map(n => n.trim()).filter(Boolean);
+    });
+}
+lireCommissairesEnregistres();
+chrome.storage?.onChanged?.addListener((changes, zone) => {
+    if (zone === 'sync' && changes.commissairesListe) lireCommissairesEnregistres();
+});
 let _lastAutoCopyAttemptUrl = '';
 let _lastDateAutoCopyAttemptUrl = '';
 let _lastDateCopiedValue = '';
@@ -273,7 +288,14 @@ function verifierPopupCommission() {
     const idDemande = extraireIdDeLUrl();
     if (idDemande && _emailsChargesPourUrl !== idDemande) {
         _emailsChargesPourUrl = idDemande;
-        chargerEmailsCommission();
+        textarea.setAttribute('data-animex-vu', 'true');
+        chargerMembresUneFois();
+    } else if (idDemande && !textarea.getAttribute('data-animex-vu')) {
+        // Nouvelle ouverture du popup sur la même demande. Si la liste était
+        // incomplète (commissaires pas encore validés), une seule nouvelle
+        // requête par ouverture — jamais dans la boucle des 800 ms.
+        textarea.setAttribute('data-animex-vu', 'true');
+        if (currentCommissionMembers.length < 2) chargerMembresUneFois();
     }
 
     if (!textarea.disabled && !textarea.getAttribute('data-autofilled') && textarea.value.trim() === '') {
@@ -534,16 +556,31 @@ function ecrireCommissaireDansTexte(textarea, rang, libelle) {
  * s'agit. La frappe libre reste possible, ces menus ne font qu'écrire à la
  * place de l'utilisateur.
  *
- * Rien n'est affiché tant qu'il y a moins de deux membres : une commission
- * réduite à une personne est une procédure simplifiée, où les commissaires ne
- * se désignent pas.
+ * Toujours affichées, dès l'ouverture du popup : les noms viennent des
+ * membres que renvoie le portail et de la liste saisie dans les options. Le
+ * portail ne connaît les membres qu'une fois les commissaires validés, d'où
+ * cette liste enregistrée, sans laquelle les menus arrivaient trop tard.
  */
+function nomsPourSelecteurs() {
+    const noms = [];
+    const vus = new Set();
+    const ajouter = (n) => {
+        const cle = n.toLowerCase();
+        if (n && !vus.has(cle)) { vus.add(cle); noms.push(n); }
+    };
+    currentCommissionMembers.forEach(m => ajouter((`${m.prenom} ${m.nomFamille}`.trim() || m.nomComplet).trim()));
+    commissairesEnregistres.forEach(ajouter);
+    return noms;
+}
+
 function poserSelecteursCommissaires(textarea) {
     const existant = document.getElementById('animex-commissaires');
-    if (currentCommissionMembers.length < 2) { existant?.remove(); return; }
-    // Reconstruit si la liste a changé de demande entre-temps.
-    const signature = currentCommissionMembers.map(m => m.email).join('|');
+    const noms = nomsPourSelecteurs();
+    // Reconstruit si la liste a changé (membres arrivés du portail, options).
+    const signature = noms.join('|');
     if (existant && existant.dataset.signature === signature) return;
+    // Garder le choix en cours si la liste se complète pendant qu'on choisit.
+    const choixEnCours = existant ? Array.from(existant.querySelectorAll('select'), sel => sel.value) : [];
     existant?.remove();
 
     const bloc = document.createElement('div');
@@ -558,11 +595,9 @@ function poserSelecteursCommissaires(textarea) {
 
         const select = document.createElement('select');
         select.style.cssText = 'padding:5px;border:1px solid #ccc;border-radius:4px;background:#fff;';
-        select.appendChild(new Option('— choisir —', ''));
-        currentCommissionMembers.forEach(m => {
-            const libelle = `${m.prenom} ${m.nomFamille}`.trim() || m.nomComplet;
-            select.appendChild(new Option(libelle, libelle));
-        });
+        select.appendChild(new Option(noms.length ? '— choisir —' : '— ajoute les noms dans les options —', ''));
+        noms.forEach(libelle => select.appendChild(new Option(libelle, libelle)));
+        if (choixEnCours[rang - 1] && noms.includes(choixEnCours[rang - 1])) select.value = choixEnCours[rang - 1];
         select.onchange = () => {
             if (select.value) ecrireCommissaireDansTexte(textarea, rang, select.value);
         };
@@ -572,6 +607,16 @@ function poserSelecteursCommissaires(textarea) {
     });
 
     textarea.parentNode.insertBefore(bloc, textarea);
+}
+
+// Angular peut redessiner le champ sans que le popup ait été fermé : sans ce
+// plafond, chaque redessin passerait pour une ouverture et relancerait l'appel.
+let _dernierChargementMembres = 0;
+function chargerMembresUneFois() {
+    if (_chargementMembresEnCours || Date.now() - _dernierChargementMembres < 60000) return;
+    _chargementMembresEnCours = true;
+    _dernierChargementMembres = Date.now();
+    chargerEmailsCommission().finally(() => { _chargementMembresEnCours = false; });
 }
 
 async function chargerEmailsCommission() {

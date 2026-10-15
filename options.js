@@ -22,6 +22,7 @@ function saveOptions() {
     hideTargetDate: hideTargetDate,
     hideType: hideType
     ,enableAutoCopy: enableAutoCopy
+    ,commissairesListe: document.getElementById('commissairesListe').value
     ,ntfyTopic: document.getElementById('ntfyTopic').value.trim()
     ,ntfyServeur: document.getElementById('ntfyServeur').value.trim()
   }, () => {
@@ -40,7 +41,9 @@ function restoreOptions() {
     ,enableAutoCopy: true
     ,ntfyTopic: ''
     ,ntfyServeur: ''
+    ,commissairesListe: ''
   }, (items) => {
+    document.getElementById('commissairesListe').value = items.commissairesListe;
     document.getElementById('ntfyTopic').value = items.ntfyTopic;
     document.getElementById('ntfyServeur').value = items.ntfyServeur;
     document.getElementById('template').value = items.commissionTemplate;
