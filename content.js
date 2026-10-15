@@ -860,6 +860,14 @@ async function ouvrirOutlook(corpsDuMessage) {
     lien.click();
     lien.remove();
 
+    // La commission a 30 jours pour répondre : le service worker programme le
+    // rappel ntfy. Rien n'est demandé au portail.
+    try {
+        chrome.runtime.sendMessage({ type: 'programmer-rappel-commission', ref: sujet, envoyeLe: Date.now() });
+    } catch (err) {
+        console.warn('Animex Toolkit: rappel ntfy non programmé', err);
+    }
+
     afficherRappelSuivi(ligneSuivi, copieOk, etatCommissaires);
 }
 

@@ -42,6 +42,17 @@
     <label for="enableAutoCopy">Activer copie automatique de <strong>requestedDays</strong> → <strong>approvedDays</strong></label>
   </div>
 
+  <h3>🔔 Rappel commission (ntfy)</h3>
+  <span class="note">Au clic sur SEND EMAIL, une notification est programmée 30 jours plus tard, à 9 h. Laisser vide pour désactiver. Le nom du canal sert de mot de passe : prends-le long et aléatoire.</span>
+  <label for="ntfyTopic">Canal ntfy :</label>
+  <input type="text" id="ntfyTopic" style="width: 100%; padding: 8px; margin: 6px 0; font-family: monospace;" placeholder="animex-…">
+  <label for="ntfyServeur">Serveur :</label>
+  <input type="text" id="ntfyServeur" style="width: 100%; padding: 8px; margin: 6px 0; font-family: monospace;" placeholder="https://ntfy.sh">
+  <button id="ntfyGenerer" type="button" style="margin-top: 6px;">Générer un canal</button>
+  <button id="ntfyTest" type="button" style="margin-top: 6px;">Envoyer un test</button>
+  <span id="ntfyStatut" class="note"></span>
+  <div id="ntfyEnAttente" class="note" style="margin-top: 10px;"></div>
+
   <button id="save">Enregistrer</button>
   <span id="status">Sauvegardé !</span>
 
