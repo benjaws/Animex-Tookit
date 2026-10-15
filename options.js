@@ -72,9 +72,45 @@ document.getElementById('ntfyTest').addEventListener('click', () => {
   });
 });
 
-chrome.storage.local.get({ rappelsCommission: {} }, ({ rappelsCommission }) => {
-  const liste = Object.values(rappelsCommission).filter(r => !r.envoye).sort((a, b) => a.echeance - b.echeance);
-  document.getElementById('ntfyEnAttente').textContent = liste.length
-    ? 'En attente : ' + liste.map(r => `${r.ref} (${new Date(r.echeance).toLocaleDateString('fr-CH')})`).join(', ')
-    : 'Aucun rappel en attente.';
-});
+// Rappels gardés dans chrome.storage.local : liste et suppression.
+function afficherRappels() {
+  chrome.storage.local.get({ rappelsCommission: {} }, ({ rappelsCommission }) => {
+    const zone = document.getElementById('ntfyEnAttente');
+    zone.textContent = '';
+    const liste = Object.entries(rappelsCommission).sort((a, b) => a[1].echeance - b[1].echeance);
+    if (!liste.length) { zone.textContent = 'Aucun rappel enregistré.'; return; }
+
+    const table = document.createElement('table');
+    table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 13px;';
+    table.innerHTML = '<tr style="text-align: left;"><th>Dossier</th><th>Mail envoyé</th><th>Rappel</th><th>État</th><th></th></tr>';
+    for (const [cle, r] of liste) {
+      const tr = document.createElement('tr');
+      tr.style.borderTop = '1px solid #ddd';
+      const cellules = [r.ref, new Date(r.envoyeLe).toLocaleDateString('fr-CH'), new Date(r.echeance).toLocaleDateString('fr-CH'),
+        r.envoye ? 'confié à ntfy' : 'en attente'];
+      for (const texte of cellules) {
+        const td = document.createElement('td');
+        td.style.padding = '4px 6px 4px 0';
+        td.textContent = texte;
+        tr.appendChild(td);
+      }
+      const td = document.createElement('td');
+      const bouton = document.createElement('button');
+      bouton.type = 'button';
+      bouton.textContent = 'Supprimer';
+      bouton.style.cssText = 'margin: 0; padding: 3px 8px; font-size: 12px; background: #c62828;';
+      bouton.addEventListener('click', () => {
+        // Déjà confié à ntfy : il partira quand même, ntfy.sh ne permet pas de
+        // l'annuler. On le dit plutôt que de laisser croire le contraire.
+        if (r.envoye && !confirm('Ce rappel est déjà programmé chez ntfy : il arrivera quand même. Le retirer de la liste ?')) return;
+        delete rappelsCommission[cle];
+        chrome.storage.local.set({ rappelsCommission }, afficherRappels);
+      });
+      td.appendChild(bouton);
+      tr.appendChild(td);
+      table.appendChild(tr);
+    }
+    zone.appendChild(table);
+  });
+}
+afficherRappels();
